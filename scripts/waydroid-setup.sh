@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Waydroid installer for SteamOS (идемпотентный)
-# Запуск: waydroid-setup
+# Waydroid installer for SteamOS
+# Run: waydroid-setup
 set -euo pipefail
 
 NIX_BIN="$HOME/.nix-profile/bin"
@@ -9,12 +9,12 @@ WAYDROID_DATA="$HOME/.local/share/waydroid"
 SCRIPT_DIR="$HOME/waydroid_script"
 
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
-skip() { printf '\033[33m→\033[0m %s (уже выполнено)\n' "$*"; }
+skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }
 step() { printf '\n\033[1;34m══ %s ══\033[0m\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Записывает файл в /etc только если содержимое изменилось.
-# Возвращает 0 (записан) / 1 (без изменений).
+# Writes a file to /etc only if the content has changed.
+# Returns 0 (written) / 1 (unchanged).
 write_etc() {
   local dest="$1"
   local tmp; tmp=$(mktemp)
@@ -25,17 +25,17 @@ write_etc() {
   sudo mkdir -p "$(dirname "$dest")"
   sudo cp "$tmp" "$dest"
   rm -f "$tmp"
-  ok "Записан $dest"
+  ok "Written $dest"
 }
 
-# ── 1. Проверка зависимостей ────────────────────────────────────────────
-step "1/7  Проверка зависимостей"
-[[ -x "$WAYDROID_BIN" ]]       || die "waydroid не найден — сначала: home-manager switch"
-[[ -x "$NIX_BIN/lxc-start" ]] || die "lxc не найден — сначала: home-manager switch"
-ok "waydroid и lxc найдены"
+# ── 1. Check dependencies ─────────────────────────────────────────────────
+step "1/7  Check dependencies"
+[[ -x "$WAYDROID_BIN" ]]       || die "waydroid not found — run: home-manager switch"
+[[ -x "$NIX_BIN/lxc-start" ]] || die "lxc not found — run: home-manager switch"
+ok "waydroid and lxc found"
 
-# ── 2. /etc файлы (overlay → /var → выживают при обновлении SteamOS) ──────
-step "2/7  /etc конфиги (systemd, D-Bus, gbinder)"
+# ── 2. /etc files (overlay → /var → survive SteamOS updates) ─────────────
+step "2/7  /etc configs (systemd, D-Bus, gbinder)"
 
 RELOAD_SYSTEMD=false
 RELOAD_DBUS=false
@@ -87,10 +87,10 @@ write_etc /etc/gbinder.d/waydroid.conf <<GBINDER || true
 GBINDER
 
 $RELOAD_SYSTEMD && { sudo systemctl daemon-reload; ok "daemon-reload"; }
-$RELOAD_DBUS    && { sudo systemctl reload dbus.service; ok "D-Bus перезагружен"; }
+$RELOAD_DBUS    && { sudo systemctl reload dbus.service; ok "D-Bus reloaded"; }
 
-# ── 3. Данные Android: директория + симлинк ─────────────────────────────
-step "3/7  Директория данных и симлинк /var/lib/waydroid"
+# ── 3. Android data: directory + symlink ──────────────────────────────────
+step "3/7  Data directory and /var/lib/waydroid symlink"
 mkdir -p "$WAYDROID_DATA"
 
 if [[ "$(readlink /var/lib/waydroid 2>/dev/null)" == "$WAYDROID_DATA" ]]; then
@@ -98,29 +98,29 @@ if [[ "$(readlink /var/lib/waydroid 2>/dev/null)" == "$WAYDROID_DATA" ]]; then
 else
   sudo rm -rf /var/lib/waydroid
   sudo ln -sf "$WAYDROID_DATA" /var/lib/waydroid
-  ok "Симлинк /var/lib/waydroid → $WAYDROID_DATA"
+  ok "Symlink /var/lib/waydroid → $WAYDROID_DATA"
 fi
 
-# ── 4. waydroid init ────────────────────────────────────────────────────
-step "4/7  waydroid init (Android 13 + GAPPS, ~3 ГБ)"
+# ── 4. waydroid init ──────────────────────────────────────────────────────
+step "4/7  waydroid init (Android 13 + GAPPS, ~3 GB)"
 if [[ -f "$WAYDROID_DATA/images/system.img" ]]; then
-  skip "Android образы уже загружены"
+  skip "Android images already downloaded"
 else
   sudo PATH="$NIX_BIN:$PATH" "$WAYDROID_BIN" init -s GAPPS
-  ok "waydroid init завершён"
+  ok "waydroid init complete"
 fi
 
 if [[ "$(stat -c %U "$WAYDROID_DATA")" != "$(whoami)" ]]; then
   sudo chown "$(whoami):$(whoami)" "$WAYDROID_DATA"
-  ok "chown $(whoami) → $WAYDROID_DATA"
+  ok "chown $(whoami) $WAYDROID_DATA"
 else
-  skip "Владелец $WAYDROID_DATA уже корректен"
+  skip "$WAYDROID_DATA owner already correct"
 fi
 
-# Контроллер/геймпад: Android детектит input-устройства (включая геймпад) только если
-# Waydroid форвардит udev/uevent в контейнер — включается этими props. Дописываем в
-# base.prop ИДЕМПОТЕНТНО (не перезаписываем — там GPU/libhoudini-пропсы от init).
-# Источник: ryanrudolfoba/extras/waydroid_base.prop. Применяются при старте сессии.
+# Gamepad: Android only detects input devices (including gamepads) when Waydroid
+# forwards udev/uevent events to the container — enabled by these props. Appended to
+# base.prop (not overwritten — GPU/libhoudini props from init are already there).
+# Source: ryanrudolfoba/extras/waydroid_base.prop. Applied on session start.
 for prop in persist.waydroid.udev=true persist.waydroid.uevent=true; do
   if grep -qxF "$prop" "$WAYDROID_DATA/waydroid_base.prop" 2>/dev/null; then
     skip "prop $prop"
@@ -130,16 +130,15 @@ for prop in persist.waydroid.udev=true persist.waydroid.uevent=true; do
   fi
 done
 
-# Правый стик: Steam создаёт виртуальный геймпад vendor=0x28de product=0x11ff (Valve).
-# Android ищет Vendor_28de_Product_11ff.kl — не находит → Generic.kl, который маппит
-# ABS_RX→AXIS_RX, ABS_RY→AXIS_RY. Большинство игр ждут правый стик на AXIS_Z/AXIS_RZ
-# (как у реального Xbox 360, Vendor_045e_Product_028e.kl).
-# Bazzite-подход: overlay. Наш overlay отключён (case-folding ext4 на /home) →
-# пишем kl напрямую в system.img. Идемпотентно: проверяем через rootfs (если примонтирован)
-# или монтируем образ сами.
+# Right stick: Steam creates a virtual gamepad vendor=0x28de product=0x11ff (Valve).
+# Android looks for Vendor_28de_Product_11ff.kl — not found → falls back to Generic.kl,
+# which maps ABS_RX→AXIS_RX, ABS_RY→AXIS_RY. Most games expect the right stick on
+# AXIS_Z/AXIS_RZ (like a real Xbox 360, Vendor_045e_Product_028e.kl).
+# Bazzite uses overlay; our overlay is disabled (case-folding ext4 on /home) →
+# write kl directly into system.img. Already-done check via debugfs.
 KL_PATH="system/usr/keylayout/Vendor_28de_Product_11ff.kl"
-# Содержимое — точная копия Vendor_045e_Product_028e.kl (Xbox 360).
-# ABS_RX(0x03)→Z, ABS_RY(0x04)→RZ — то что Android-игры ждут от правого стика.
+# Content mirrors Vendor_045e_Product_028e.kl (Xbox 360).
+# ABS_RX(0x03)→Z, ABS_RY(0x04)→RZ — what Android games expect from the right stick.
 read -r -d "" KL_CONTENT << 'KLEOF' || true
 key 304   BUTTON_A
 key 305   BUTTON_B
@@ -161,9 +160,9 @@ key 314   BUTTON_SELECT
 key 316   BUTTON_MODE
 key 315   BUTTON_START
 KLEOF
-# Идемпотентность: debugfs читает ext4 образ напрямую без монтирования и без
-# остановки контейнера — system.img монтируется внутри lxc namespace и недоступен
-# через хостовый rootfs/. debugfs доступен без sudo (system.img читается всеми).
+# Already-done check: debugfs reads the ext4 image directly without mounting and without
+# stopping the container — system.img is mounted inside the lxc namespace and is not
+# accessible via the host rootfs. debugfs works without sudo (system.img is world-readable).
 IMG="$WAYDROID_DATA/images/system.img"
 if debugfs -R "stat /$KL_PATH" "$IMG" 2>/dev/null | grep -q "Type: regular"; then
   skip "$KL_PATH"
@@ -181,8 +180,8 @@ else
   ok "$KL_PATH → Android system.img"
 fi
 
-# ── 5. firewalld ────────────────────────────────────────────────────────
-step "5/7  firewalld (интернет в Android)"
+# ── 5. firewalld ──────────────────────────────────────────────────────────
+step "5/7  firewalld (internet for Android)"
 sudo systemctl enable --now firewalld
 
 fwadd_iface() {
@@ -217,29 +216,29 @@ fwadd_masq  trusted
 sudo firewall-cmd --reload
 ok "firewall-cmd --reload"
 
-# ── 6. Включить сервис ──────────────────────────────────────────────────
+# ── 6. Enable service ─────────────────────────────────────────────────────
 step "6/7  systemctl enable waydroid-container"
 if systemctl is-enabled --quiet waydroid-container.service 2>/dev/null; then
-  skip "waydroid-container.service уже включён"
+  skip "waydroid-container.service already enabled"
 else
   sudo systemctl enable waydroid-container.service
-  ok "waydroid-container.service включён"
+  ok "waydroid-container.service enabled"
 fi
 
-# Геймпад: uevent-ретриггер (Bazzite pattern).
-# props udev=true/uevent=true включают форвардинг, но Android не видит контроллер —
-# событие "add" пришло до старта форвардинга. Пишем "add" в sysfs вручную → ядро
-# переотправляет udev-событие → Android регистрирует устройство.
-# Скрипт и sudoers в /etc/ → overlay → /var → выживают при обновлении SteamOS.
+# Gamepad: uevent retrigger (Bazzite pattern).
+# udev=true/uevent=true props enable forwarding, but Android may miss the controller —
+# the "add" event arrived before forwarding started. Writing "add" to sysfs manually
+# makes the kernel resend the udev event → Android registers the device.
+# Script and sudoers in /etc/ → overlay → /var → survive SteamOS updates.
 write_etc /etc/waydroid-fix-controllers <<'FIXSCRIPT' || true
 #!/bin/bash
 echo add | tee /sys/devices/virtual/input/input*/event*/uevent >/dev/null 2>&1 || true
 FIXSCRIPT
 sudo chmod +x /etc/waydroid-fix-controllers
 
-# ВАЖНО: имя файла должно быть позже wheel/wheel-prepare-oobe-test по алфавиту —
-# иначе %wheel ALL=(ALL) ALL перекроет наш NOPASSWD (последнее правило побеждает).
-# zz-... гарантированно последнее среди всех sudoers.d файлов SteamOS.
+# IMPORTANT: the filename must sort after wheel/wheel-prepare-oobe-test alphabetically —
+# otherwise %wheel ALL=(ALL) ALL overrides our NOPASSWD (last rule wins).
+# zz-... is guaranteed to be last among all SteamOS sudoers.d files.
 sudo rm -f /etc/sudoers.d/waydroid-fix-controllers 2>/dev/null || true
 write_etc /etc/sudoers.d/zz-waydroid-fix-controllers <<SUDOERS || true
 deck ALL=(ALL) NOPASSWD: /etc/waydroid-fix-controllers
@@ -247,30 +246,30 @@ SUDOERS
 sudo chmod 440 /etc/sudoers.d/zz-waydroid-fix-controllers
 ok "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
 
-# ── 7. libhoudini (ARM трансляция) ──────────────────────────────────────
-step "7/7  libhoudini — ARM трансляция"
+# ── 7. libhoudini (ARM translation) ──────────────────────────────────────
+step "7/7  libhoudini — ARM translation"
 
 if grep -q 'ro.dalvik.vm.native.bridge' "$WAYDROID_DATA/waydroid.cfg" 2>/dev/null; then
-  skip "libhoudini уже установлен"
+  skip "libhoudini already installed"
 else
   if [[ ! -d "$SCRIPT_DIR/.git" ]]; then
     git clone https://github.com/casualsnek/waydroid_script "$SCRIPT_DIR"
-    ok "waydroid_script клонирован"
+    ok "waydroid_script cloned"
   else
-    skip "waydroid_script уже клонирован"
+    skip "waydroid_script already cloned"
   fi
 
   if [[ ! -d "$SCRIPT_DIR/venv" ]]; then
     python3 -m venv "$SCRIPT_DIR/venv"
     "$SCRIPT_DIR/venv/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt"
-    ok "Python venv создан"
+    ok "Python venv created"
   else
-    skip "Python venv уже создан"
+    skip "Python venv already created"
   fi
 
   CONTAINER_PY="$SCRIPT_DIR/tools/container.py"
   if grep -qF 'ignore=r"' "$CONTAINER_PY" 2>/dev/null; then
-    skip "Патч container.py уже применён"
+    skip "container.py patch already applied"
   else
     python3 - "$CONTAINER_PY" <<'PYEOF'
 import sys
@@ -283,18 +282,18 @@ if old not in content:
     sys.exit(0)
 open(path, 'w').write(content.replace(old, new, 1))
 PYEOF
-    ok "Патч container.py применён"
+    ok "container.py patch applied"
   fi
 
   sudo systemctl start waydroid-container.service
   sleep 3
   sudo PATH="$NIX_BIN:$PATH" "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/main.py" install libhoudini
-  ok "libhoudini установлен"
+  ok "libhoudini installed"
 fi
 
-# ── Готово ──────────────────────────────────────────────────────────────
-printf '\n\033[32m✓ Установка завершена!\033[0m\n\n'
-printf '  Запустить Android:\n'
+# ── Done ──────────────────────────────────────────────────────────────────
+printf '\n\033[32m✓ Setup complete!\033[0m\n\n'
+printf '  Launch Android:\n'
 printf '    waydroid session start &\n'
 printf '    sleep 8 && waydroid show-full-ui\n\n'
-printf '  Напоминание: BIOS → UMA Frame Buffer Size → 4G (для игр)\n\n'
+printf '  Reminder: BIOS → UMA Frame Buffer Size → 4G (for games)\n\n'

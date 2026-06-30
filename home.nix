@@ -186,7 +186,7 @@ in
     # pkgs.fd
   ];
 
-  # Idempotent setup script — run once after switch.
+  # Setup script — run once after switch; safe to re-run.
   home.file.".local/bin/waydroid-setup" = {
     executable = true;
     source = ./scripts/waydroid-setup.sh;
