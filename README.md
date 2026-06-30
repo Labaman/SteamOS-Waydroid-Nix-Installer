@@ -39,7 +39,7 @@ Then run the Waydroid setup script once (~3 GB download for the Android image):
 waydroid-setup
 ```
 
-The script is idempotent — safe to re-run after SteamOS A/B updates.
+Safe to re-run after SteamOS updates — already completed steps are skipped automatically.
 
 Add your own packages and programs inside `home.nix`.
 
