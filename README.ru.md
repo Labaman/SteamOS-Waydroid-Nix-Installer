@@ -76,3 +76,9 @@ chsh -s /usr/bin/fish
 ```
 
 Сделай это **до** запуска `home-manager switch` с включённым модулем оболочки. После перезахода в сессию раскомментируй соответствующий блок в `home.nix`.
+
+## Благодарности
+
+- [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — подход с cage-лаунчером для Game Mode и udev/uevent пропсы из `waydroid_base.prop`
+- [Bazzite](https://github.com/ublue-os/bazzite) — паттерн uevent-ретриггера для поддержки геймпада
+- [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — установщик libhoudini (ARM-трансляция)

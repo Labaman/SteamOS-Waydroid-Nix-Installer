@@ -79,3 +79,9 @@ chsh -s /usr/bin/fish
 
 Do this **before** running `home-manager switch` with the shell module enabled.
 After re-login, uncomment the corresponding shell block in `home.nix`.
+
+## Credits
+
+- [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — Game Mode cage launcher approach and `waydroid_base.prop` udev/uevent props
+- [Bazzite](https://github.com/ublue-os/bazzite) — uevent retrigger pattern for gamepad support
+- [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — libhoudini ARM translation installer
