@@ -34,7 +34,7 @@ step "1/7  Проверка зависимостей"
 [[ -x "$NIX_BIN/lxc-start" ]] || die "lxc не найден — сначала: home-manager switch"
 ok "waydroid и lxc найдены"
 
-# ── 2. /etc файлы (overlay → /var → выживают при A/B обновлении) ───────
+# ── 2. /etc файлы (overlay → /var → выживают при обновлении SteamOS) ──────
 step "2/7  /etc конфиги (systemd, D-Bus, gbinder)"
 
 RELOAD_SYSTEMD=false
@@ -230,7 +230,7 @@ fi
 # props udev=true/uevent=true включают форвардинг, но Android не видит контроллер —
 # событие "add" пришло до старта форвардинга. Пишем "add" в sysfs вручную → ядро
 # переотправляет udev-событие → Android регистрирует устройство.
-# Скрипт и sudoers в /etc/ → overlay → /var → выживают при A/B обновлении.
+# Скрипт и sudoers в /etc/ → overlay → /var → выживают при обновлении SteamOS.
 write_etc /etc/waydroid-fix-controllers <<'FIXSCRIPT' || true
 #!/bin/bash
 echo add | tee /sys/devices/virtual/input/input*/event*/uevent >/dev/null 2>&1 || true

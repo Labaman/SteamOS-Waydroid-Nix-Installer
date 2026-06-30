@@ -167,10 +167,10 @@ in
   # After `home-manager switch`, run once to complete the setup:
   #   waydroid-setup
   #
-  # Safe to re-run after SteamOS A/B updates — each step is idempotent.
+  # Safe to re-run after SteamOS updates — already completed steps are skipped automatically.
   # What Nix/HM covers:   packages below + scripts in ~/.local/bin/
   # What the script does: /etc/systemd, /etc/dbus-1, /etc/gbinder.d, firewalld
-  #                       (require root; all survive A/B updates via /etc overlay)
+  #                       (require root; all survive SteamOS updates via /etc overlay)
   home.packages = [
     pkgs.waydroid-nftables # Waydroid with nftables backend (required on SteamOS)
     pkgs.lxc               # lxc-start — used by waydroid as an external binary
