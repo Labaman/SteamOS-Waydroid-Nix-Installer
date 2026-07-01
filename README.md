@@ -6,7 +6,7 @@ Installs [Waydroid](https://waydroid.io/) (Android 13 + GAPPS) on Steam Deck via
 
 Does everything [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) does — base SteamOS fixes, nixGL, shell prompt, Wayland — plus installs Android in an LXC container with a Game Mode launcher and gamepad support.
 
-Supports SteamOS 3.5 and above. Packages and settings survive SteamOS updates.
+Packages and settings survive SteamOS updates.
 
 ## Features
 
@@ -17,6 +17,11 @@ Supports SteamOS 3.5 and above. Packages and settings survive SteamOS updates.
 | Game Mode launcher | `waydroid-gamemode` — add to Steam as a non-Steam game |
 | Gamepad support | Right stick mapped correctly for Android games |
 | ARM translation | libhoudini via [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
+
+## Requirements
+
+- SteamOS 3.5 or newer
+- ~3 GB free space on internal storage for the Android image
 
 ## Usage
 

@@ -6,7 +6,7 @@
 
 Делает всё то же, что [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) — базовые фиксы SteamOS, nixGL, строка приглашения оболочки, Wayland — плюс устанавливает Android в LXC-контейнере с лаунчером для Game Mode и поддержкой геймпада.
 
-Поддерживает SteamOS 3.5 и выше. Пакеты и настройки не слетают при обновлениях SteamOS.
+Пакеты и настройки не слетают при обновлениях SteamOS.
 
 ## Возможности
 
@@ -17,6 +17,11 @@
 | Лаунчер для Game Mode | `waydroid-gamemode` — добавить в Steam как стороннюю игру |
 | Поддержка геймпада | Правый стик корректно маппируется для Android-игр |
 | ARM-трансляция | libhoudini через [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
+
+## Требования
+
+- SteamOS 3.5 и выше
+- ~3 ГБ свободного места на встроенном накопителе под образ Android
 
 ## Использование
 
