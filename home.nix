@@ -55,17 +55,15 @@ in
   # removed when using zsh or fish.
   programs.bash.initExtra = lib.mkAfter dedupXdgDataDirs;
 
-  # After switch, system apps (Konsole etc.) vanish from the KDE launcher until the
-  # next login. update-desktop-database rewrites mimeinfo.cache, bumping the mtime of
-  # ~/.local/share/applications; kded6 picks that up via KDirWatch and rebuilds ksycoca
-  # in the live session context (correct XDG_MENU_PREFIX). Do NOT call kbuildsycoca6
-  # directly: it runs in the switch environment (e.g. VS Code terminal) which lacks
-  # XDG_MENU_PREFIX=plasma-, producing a menu without system apps.
+  # After switch, system apps (Konsole etc.) vanish from the KDE launcher and search.
+  # Home Manager's activation script overrides PATH to a bare list of Nix store tools —
+  # /usr/bin isn't included, so kbuildsycoca6 silently builds an incomplete cache missing
+  # system apps. Fix: prepend /usr/bin to PATH before calling it.
   # env -u LD_LIBRARY_PATH avoids a glibc conflict with Nix's own glibc.
   home.activation.refreshPlasmaMenu =
     lib.hm.dag.entryAfter [ "linkGeneration" "onFilesChange" ] ''
-      if [ -x /usr/bin/update-desktop-database ]; then
-        $DRY_RUN_CMD env -u LD_LIBRARY_PATH /usr/bin/update-desktop-database || true
+      if [ -x /usr/bin/kbuildsycoca6 ]; then
+        $DRY_RUN_CMD env -u LD_LIBRARY_PATH PATH="/usr/bin:/usr/local/bin:$PATH" /usr/bin/kbuildsycoca6 --noincremental || true
       fi
     '';
 
