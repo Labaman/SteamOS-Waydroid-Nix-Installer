@@ -213,7 +213,12 @@ KL_STAT="$(debugfs -R "stat /$KL_PATH" "$IMG" 2>/dev/null)"
 # (User/Group/Project/Size line), and again on the "Fragment: ... Size: 0" line
 # (a legacy ext2 field, always 0). Without head -1 both values got concatenated
 # via newline → "392\n0" → arithmetic error in the comparison below.
-KL_SIZE="$(grep -oE 'Size: [0-9]+' <<<"$KL_STAT" | head -1 | grep -oE '[0-9]+')"
+# || true: on a truly fresh image the path doesn't exist at all (not a
+# zero-size stub) → KL_STAT is empty → grep finds no "Size:" → exit 1 →
+# set -e silently kills the script right here, with no error printed at all.
+# Verified: this isn't about pipes/pipefail — plain `VAR=$(cmd)` under set -e
+# reacts to cmd's own exit code, not just to "visible" command failures.
+KL_SIZE="$(grep -oE 'Size: [0-9]+' <<<"$KL_STAT" | head -1 | grep -oE '[0-9]+')" || true
 if grep -q "Type: regular" <<<"$KL_STAT" && [[ "${KL_SIZE:-0}" -gt 0 ]]; then
   skip "$KL_PATH"
 else
@@ -321,7 +326,17 @@ ok "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
 # ── 7. libhoudini (ARM translation) ──────────────────────────────────────
 step "7/7  libhoudini — ARM translation"
 
-if grep -q 'ro.dalvik.vm.native.bridge' "$WAYDROID_DATA/waydroid.cfg" 2>/dev/null; then
+# Check the real file via debugfs, not ro.dalvik.vm.native.bridge in
+# waydroid.cfg — `waydroid init` sets that property by default regardless of
+# whether libhoudini.so was ever actually copied in.
+houdini_installed() {
+  local st size
+  st="$(debugfs -R "stat /system/lib64/libhoudini.so" "$IMG" 2>/dev/null)"
+  size="$(grep -oE 'Size: [0-9]+' <<<"$st" | head -1 | grep -oE '[0-9]+')" || true
+  grep -q "Type: regular" <<<"$st" && [[ "${size:-0}" -gt 0 ]]
+}
+
+if houdini_installed; then
   skip "libhoudini already installed"
 else
   if [[ ! -d "$SCRIPT_DIR/.git" ]]; then
@@ -340,7 +355,13 @@ else
   fi
 
   CONTAINER_PY="$SCRIPT_DIR/tools/container.py"
-  if grep -qF 'ignore=r"' "$CONTAINER_PY" 2>/dev/null; then
+  # Check the exact patched line — upstream's own upgrade() already contains
+  # an unrelated ignore=r"...", so a loose substring check always false-
+  # positives as "patched". The patch itself isn't optional: `waydroid
+  # container stop` always writes to stderr, and their run() raises on any
+  # non-empty stderr regardless of exit code.
+  PATCHED_STOP='run(["waydroid", "container", "stop"], ignore=r"\[.*\] Stopping container")'
+  if grep -qF "$PATCHED_STOP" "$CONTAINER_PY" 2>/dev/null; then
     skip "container.py patch already applied"
   else
     python3 - "$CONTAINER_PY" <<'PYEOF'
@@ -354,24 +375,30 @@ if old not in content:
     sys.exit(0)
 open(path, 'w').write(content.replace(old, new, 1))
 PYEOF
+    # Silently exits 0 without patching if upstream reformatted `old` — verify
+    # the result instead of trusting the exit code.
+    grep -qF "$PATCHED_STOP" "$CONTAINER_PY" 2>/dev/null ||
+      die "container.py patch didn't take (upstream may have changed stop()) — check $CONTAINER_PY manually"
     ok "container.py patch applied"
   fi
 
-  sudo systemctl start waydroid-container.service
-  ensure_container_active
+  # Don't pre-start the service: install_app() manages container stop/start
+  # itself. Starting it first breaks their internal mount() — verified live,
+  # libhoudini.so silently fails to land when the service is already active.
   sudo PATH="$NIX_BIN:$PATH" "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/main.py" install libhoudini
-  ok "libhoudini installed"
+
+  # "installation finished" doesn't mean it actually landed — verify on disk.
+  houdini_installed || die "libhoudini reported installed but /system/lib64/libhoudini.so is missing — see install output above"
+  ok "libhoudini installed (verified on disk)"
 fi
 
 # ── Final check ────────────────────────────────────────────────────────────
-# Guarantee that after a successful run the container is up and ready for
-# `waydroid session start` — regardless of which steps above actually ran
-# versus were skipped as already done.
-if ! systemctl is-active --quiet waydroid-container.service; then
-  sudo systemctl start waydroid-container.service
-  ensure_container_active
-  ok "waydroid-container.service started"
-fi
+# Unconditional restart rather than "start only if inactive" — guarantees the
+# LXC container and system.img/vendor.img mounts are fresh with every fix
+# above applied, instead of relying on each step's own restore logic.
+sudo systemctl restart waydroid-container.service
+ensure_container_active
+ok "waydroid-container.service restarted — all fixes guaranteed to be applied"
 
 # ── Done ──────────────────────────────────────────────────────────────────
 printf '\n\033[32m✓ Setup complete!\033[0m\n\n'
