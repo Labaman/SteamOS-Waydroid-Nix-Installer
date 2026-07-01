@@ -15,17 +15,42 @@ die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 # Writes a file to /etc only if the content has changed.
 # Returns 0 (written) / 1 (unchanged).
+# install -D -m 644 (not mkdir+cp): mktemp creates tmp with 600 permissions, and a
+# plain cp would copy the source's permissions as-is → the file in /etc ends up
+# root-only. Daemons like dbus-broker don't run as root (they run as the system
+# dbus user) and can't read such a file — this is exactly how the
+# id.waydro.Container.conf policy silently stopped being applied.
 write_etc() {
   local dest="$1"
   local tmp; tmp=$(mktemp)
   cat > "$tmp"
-  if sudo test -f "$dest" && sudo cmp -s "$tmp" "$dest" 2>/dev/null; then
+  # Check both content AND permissions: files already written by the OLD version
+  # of this function (before the mktemp→600 fix) match on content but are still
+  # root-only — a content-only cmp isn't enough, or such files would stay
+  # unreadable to non-root daemons (dbus-broker etc.) forever.
+  if sudo test -f "$dest" && sudo cmp -s "$tmp" "$dest" 2>/dev/null \
+     && [[ "$(sudo stat -c %a "$dest" 2>/dev/null)" == "644" ]]; then
     skip "$dest"; rm -f "$tmp"; return 1
   fi
-  sudo mkdir -p "$(dirname "$dest")"
-  sudo cp "$tmp" "$dest"
+  sudo install -D -m 644 "$tmp" "$dest"
   rm -f "$tmp"
   ok "Written $dest"
+}
+
+# Waits until waydroid-container.service actually comes up. The unit is
+# Type=dbus — is-active only becomes true once the process has acquired its
+# BusName, so this is a genuine readiness check, not just "the process hasn't
+# crashed yet". Fails clearly with a helpful pointer instead of silently
+# continuing with a broken service.
+ensure_container_active() {
+  local tries=0
+  until systemctl is-active --quiet waydroid-container.service; do
+    tries=$((tries + 1))
+    if (( tries >= 15 )); then
+      die "waydroid-container.service failed to come up — check: journalctl -xeu waydroid-container.service"
+    fi
+    sleep 1
+  done
 }
 
 # ── 1. Check dependencies ─────────────────────────────────────────────────
@@ -74,7 +99,8 @@ if write_etc /etc/dbus-1/system.d/id.waydro.Container.conf <<DBUS
 DBUS
 then RELOAD_DBUS=true; fi
 
-write_etc /etc/gbinder.d/waydroid.conf <<GBINDER || true
+RELOAD_GBINDER=false
+if write_etc /etc/gbinder.d/waydroid.conf <<GBINDER
 [Protocol]
 /dev/anbox-binder = aidl2
 /dev/anbox-vndbinder = aidl2
@@ -85,9 +111,23 @@ write_etc /etc/gbinder.d/waydroid.conf <<GBINDER || true
 /dev/anbox-vndbinder = aidl2
 /dev/anbox-hwbinder = hidl
 GBINDER
+then RELOAD_GBINDER=true; fi
 
 $RELOAD_SYSTEMD && { sudo systemctl daemon-reload; ok "daemon-reload"; }
 $RELOAD_DBUS    && { sudo systemctl reload dbus.service; ok "D-Bus reloaded"; }
+
+# systemd/dbus configs apply live (daemon-reload / reload are wired to
+# SIGHUP+notify-reload, no restart needed). But the container process itself
+# only reads gbinder.conf and the BusName policy at its OWN startup — if it was
+# already running (e.g. after a previous install and a host reboot), it won't
+# see the new config without a restart. Restart once if any of the three
+# changed AND the container is already active; if nothing changed, move on
+# quietly. A host reboot is never required for any of these files.
+if { $RELOAD_SYSTEMD || $RELOAD_DBUS || $RELOAD_GBINDER; } && systemctl is-active --quiet waydroid-container.service; then
+  sudo systemctl restart waydroid-container.service
+  ensure_container_active
+  ok "waydroid-container.service restarted (picking up new config)"
+fi
 
 # ── 3. Android data: directory + symlink ──────────────────────────────────
 step "3/7  Data directory and /var/lib/waydroid symlink"
@@ -135,7 +175,7 @@ done
 # which maps ABS_RX→AXIS_RX, ABS_RY→AXIS_RY. Most games expect the right stick on
 # AXIS_Z/AXIS_RZ (like a real Xbox 360, Vendor_045e_Product_028e.kl).
 # Bazzite uses overlay; our overlay is disabled (case-folding ext4 on /home) →
-# write kl directly into system.img. Already-done check via debugfs.
+# write kl directly into system.img.
 KL_PATH="system/usr/keylayout/Vendor_28de_Product_11ff.kl"
 # Content mirrors Vendor_045e_Product_028e.kl (Xbox 360).
 # ABS_RX(0x03)→Z, ABS_RY(0x04)→RZ — what Android games expect from the right stick.
@@ -160,11 +200,21 @@ key 314   BUTTON_SELECT
 key 316   BUTTON_MODE
 key 315   BUTTON_START
 KLEOF
-# Already-done check: debugfs reads the ext4 image directly without mounting and without
-# stopping the container — system.img is mounted inside the lxc namespace and is not
-# accessible via the host rootfs. debugfs works without sudo (system.img is world-readable).
+# Already-done check: debugfs reads the ext4 image directly without mounting and
+# without stopping the container — system.img is mounted inside the lxc
+# namespace and isn't accessible via the host rootfs. Checks not just whether
+# the file exists, but its SIZE too: if a previous run failed with "no space
+# left" right after creating the file but before writing its content, a
+# zero-size stub file would remain — "Type: regular" matches that too, and
+# without the Size check the script would forever consider this already done.
 IMG="$WAYDROID_DATA/images/system.img"
-if debugfs -R "stat /$KL_PATH" "$IMG" 2>/dev/null | grep -q "Type: regular"; then
+KL_STAT="$(debugfs -R "stat /$KL_PATH" "$IMG" 2>/dev/null)"
+# head -1: debugfs prints "Size:" twice — once for the real file size
+# (User/Group/Project/Size line), and again on the "Fragment: ... Size: 0" line
+# (a legacy ext2 field, always 0). Without head -1 both values got concatenated
+# via newline → "392\n0" → arithmetic error in the comparison below.
+KL_SIZE="$(grep -oE 'Size: [0-9]+' <<<"$KL_STAT" | head -1 | grep -oE '[0-9]+')"
+if grep -q "Type: regular" <<<"$KL_STAT" && [[ "${KL_SIZE:-0}" -gt 0 ]]; then
   skip "$KL_PATH"
 else
   WAS_ACTIVE=false
@@ -172,11 +222,33 @@ else
     WAS_ACTIVE=true
     sudo systemctl stop waydroid-container.service && sleep 2
   fi
+
+  # Different LineageOS builds ship with different amounts of free space inside
+  # system.img — sometimes it's zero (that's exactly what happened on a fresh
+  # reinstall: 2.5G/2.5G, 100%, 0 free blocks). Don't rely on luck for any
+  # particular build: count free blocks ahead of time and grow the image
+  # idempotently BEFORE attempting the write, instead of reacting to a failed tee.
+  FREE_KB="$(dumpe2fs -h "$IMG" 2>/dev/null | awk -F: '
+    /Free blocks/ { gsub(/ /,"",$2); free=$2 }
+    /Block size/  { gsub(/ /,"",$2); bs=$2 }
+    END { if (bs) print free * bs / 1024; else print 0 }')"
+  if [[ "${FREE_KB:-0}" -lt 4096 ]]; then
+    # e2fsck exit code 1 = "errors corrected" — that's success, not a failure
+    # (see man e2fsck).
+    sudo e2fsck -fy "$IMG" >/dev/null || true
+    sudo truncate -s +32M "$IMG"
+    sudo resize2fs "$IMG" >/dev/null
+    ok "system.img grown by 32M (had ${FREE_KB:-0}KB free)"
+  fi
+
   TMP_MNT="$(mktemp -d /tmp/waydroid-sys-XXXXXX)"
   sudo mount -o rw,loop "$IMG" "$TMP_MNT"
   printf '%s\n' "$KL_CONTENT" | sudo tee "$TMP_MNT/$KL_PATH" >/dev/null
   sudo umount "$TMP_MNT" && rmdir "$TMP_MNT"
-  $WAS_ACTIVE && sudo systemctl start waydroid-container.service
+  if $WAS_ACTIVE; then
+    sudo systemctl start waydroid-container.service
+    ensure_container_active
+  fi
   ok "$KL_PATH → Android system.img"
 fi
 
@@ -286,9 +358,19 @@ PYEOF
   fi
 
   sudo systemctl start waydroid-container.service
-  sleep 3
+  ensure_container_active
   sudo PATH="$NIX_BIN:$PATH" "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/main.py" install libhoudini
   ok "libhoudini installed"
+fi
+
+# ── Final check ────────────────────────────────────────────────────────────
+# Guarantee that after a successful run the container is up and ready for
+# `waydroid session start` — regardless of which steps above actually ran
+# versus were skipped as already done.
+if ! systemctl is-active --quiet waydroid-container.service; then
+  sudo systemctl start waydroid-container.service
+  ensure_container_active
+  ok "waydroid-container.service started"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
@@ -297,3 +379,8 @@ printf '  Launch Android:\n'
 printf '    waydroid session start &\n'
 printf '    sleep 8 && waydroid show-full-ui\n\n'
 printf '  Reminder: BIOS → UMA Frame Buffer Size → 4G (for games)\n\n'
+printf '  \033[33mRe-run this script after:\033[0m\n'
+printf '    - waydroid upgrade — fully rewrites system.img/vendor.img and wipes the\n'
+printf '      overlay, the right-stick .kl fix and libhoudini get lost, need to reapply\n'
+printf '    - major SteamOS updates — just in case; configs in /etc/ survive updates\n'
+printf '      on their own, but the script is idempotent and it will not hurt to rerun\n\n'
