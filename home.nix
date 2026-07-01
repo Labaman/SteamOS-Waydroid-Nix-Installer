@@ -106,20 +106,29 @@ in
   home.sessionPath = [ "$HOME/.local/bin" ];
 
   # Starship prompt — shell-independent (same toml renders in bash, zsh, and fish).
-  # Matches the default SteamOS bash style [user@host dir]$ with git branch added:
-  #   [deck@steamdeck ~]$              outside a repo
-  #   [deck@steamdeck myapp] (main)$   inside a repo
+  # Matches the default SteamOS bash style 1:1 (__steamos_prompt_command in
+  # /etc/bash.bashrc): (rc)(user@host dir)$ — rc in red only on a non-zero exit
+  # code, user@host as one green block, parens (not square brackets). Git
+  # branch/status is our own addition — the original bash prompt has no git info:
+  #   (deck@steamdeck ~)$                outside a repo
+  #   (deck@steamdeck myapp) [main]$     inside a repo
   programs.starship = {
     enable = true;
     settings = {
-      format = "\\[$username@$hostname $directory\\]$git_branch$git_status$character ";
+      format = "$status\\($username$hostname $directory\\)( \\[$git_branch$git_status\\])$character ";
       add_newline = false;
+
+      status = {
+        disabled = false;
+        style = "bold red";
+        format = "[($status)]($style)";
+      };
 
       username = {
         show_always = true;
         style_user = "bold green";
         style_root = "bold red";
-        format = "[$user]($style)";
+        format = "[$user@]($style)";
       };
 
       hostname = {
@@ -136,7 +145,7 @@ in
       };
 
       git_branch = {
-        format = " [\\($branch\\)]($style)";
+        format = "[$branch]($style)";
         style = "bold yellow";
       };
 
