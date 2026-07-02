@@ -7,34 +7,47 @@ NIX_BIN="$HOME/.nix-profile/bin"
 WAYDROID_BIN="$NIX_BIN/waydroid"
 WAYDROID_DATA="$HOME/.local/share/waydroid"
 SCRIPT_DIR="$HOME/waydroid_script"
+WAYDROID_CFG="/var/lib/waydroid/waydroid.cfg"
+IMG="$WAYDROID_DATA/images/system.img"
 
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
 skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }
 step() { printf '\n\033[1;34m══ %s ══\033[0m\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Writes a file to /etc only if the content has changed.
-# Returns 0 (written) / 1 (unchanged).
-# install -D -m 644 (not mkdir+cp): mktemp creates tmp with 600 permissions, and a
-# plain cp would copy the source's permissions as-is → the file in /etc ends up
-# root-only. Daemons like dbus-broker don't run as root (they run as the system
-# dbus user) and can't read such a file — this is exactly how the
-# id.waydro.Container.conf policy silently stopped being applied.
-write_etc() {
-  local dest="$1"
+# Writes a file (to /etc or Waydroid's data dir) only if the content changed.
+# Returns 0 (written) / 1 (unchanged). install -D -m MODE, not mkdir+cp: mktemp
+# creates tmp at 600, plain cp would keep that → root-only file, unreadable by
+# non-root daemons (dbus-broker etc). mode is a parameter because some callers
+# chmod afterward (+x, 440 for sudoers) — comparing against a hardcoded 644
+# made those files look "different" forever and rewrote them on every run.
+write_file() {
+  local dest="$1" mode="${2:-644}"
   local tmp; tmp=$(mktemp)
   cat > "$tmp"
-  # Check both content AND permissions: files already written by the OLD version
-  # of this function (before the mktemp→600 fix) match on content but are still
-  # root-only — a content-only cmp isn't enough, or such files would stay
-  # unreadable to non-root daemons (dbus-broker etc.) forever.
   if sudo test -f "$dest" && sudo cmp -s "$tmp" "$dest" 2>/dev/null \
-     && [[ "$(sudo stat -c %a "$dest" 2>/dev/null)" == "644" ]]; then
+     && [[ "$(sudo stat -c %a "$dest" 2>/dev/null)" == "$mode" ]]; then
     skip "$dest"; rm -f "$tmp"; return 1
   fi
-  sudo install -D -m 644 "$tmp" "$dest"
+  sudo install -D -m "$mode" "$tmp" "$dest"
   rm -f "$tmp"
   ok "Written $dest"
+}
+
+# Kernel error from waydroid.log when overlay mount fails: "overlay: case-
+# insensitive capable filesystem on .../overlay not supported" — the ext4
+# casefold feature flag on the whole filesystem (not a per-directory chattr
+# +F), affects the entire partition. Checked directly via tune2fs on whatever
+# device backs Waydroid's data (findmnt, not a hardcoded device path — eMMC
+# Steam Decks name their disk differently). Checked on every run, not cached:
+# if SteamOS ever drops casefold from /home, overlay becomes the sturdier
+# option for ANY addon (translator, root, dock — layered instead of baked
+# into system.img), and the script should pick that up automatically.
+overlayfs_supported() {
+  local dev features
+  dev="$(findmnt -n -o SOURCE --target "$WAYDROID_DATA" 2>/dev/null)" || return 1
+  features="$(sudo tune2fs -l "$dev" 2>/dev/null)" || return 1
+  ! grep -qw casefold <<<"$features"
 }
 
 # Waits until waydroid-container.service actually comes up. The unit is
@@ -65,7 +78,7 @@ step "2/7  /etc configs (systemd, D-Bus, gbinder)"
 RELOAD_SYSTEMD=false
 RELOAD_DBUS=false
 
-if write_etc /etc/systemd/system/waydroid-container.service <<UNIT
+if write_file /etc/systemd/system/waydroid-container.service <<UNIT
 [Unit]
 Description=Waydroid Container
 After=network.target dbus.service
@@ -83,7 +96,7 @@ WantedBy=multi-user.target
 UNIT
 then RELOAD_SYSTEMD=true; fi
 
-if write_etc /etc/dbus-1/system.d/id.waydro.Container.conf <<DBUS
+if write_file /etc/dbus-1/system.d/id.waydro.Container.conf <<DBUS
 <?xml version="1.0"?>
 <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
@@ -100,7 +113,7 @@ DBUS
 then RELOAD_DBUS=true; fi
 
 RELOAD_GBINDER=false
-if write_etc /etc/gbinder.d/waydroid.conf <<GBINDER
+if write_file /etc/gbinder.d/waydroid.conf <<GBINDER
 [Protocol]
 /dev/anbox-binder = aidl2
 /dev/anbox-vndbinder = aidl2
@@ -170,12 +183,31 @@ for prop in persist.waydroid.udev=true persist.waydroid.uevent=true; do
   fi
 done
 
+# waydroid.cfg (created by init above) defaults mount_overlays=True. In that
+# mode install_app() (waydroid_script) and our kl-fix below write into the
+# overlay dir instead of system.img — see container.py use_overlayfs(). Sync
+# mount_overlays to what this filesystem can actually do BEFORE the kl-fix and
+# libhoudini (step 7) — both branch on the same flag below.
+if overlayfs_supported; then
+  if grep -q '^mount_overlays = False$' "$WAYDROID_CFG" 2>/dev/null; then
+    sudo sed -i 's/^mount_overlays = False$/mount_overlays = True/' "$WAYDROID_CFG"
+    ok "overlayfs supported — mount_overlays enabled"
+  else
+    skip "overlayfs supported, mount_overlays already enabled"
+  fi
+else
+  if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
+    sudo sed -i 's/^mount_overlays = True$/mount_overlays = False/' "$WAYDROID_CFG"
+    ok "overlayfs not supported — mount_overlays disabled"
+  else
+    skip "overlayfs not supported, mount_overlays already disabled"
+  fi
+fi
+
 # Right stick: Steam creates a virtual gamepad vendor=0x28de product=0x11ff (Valve).
 # Android looks for Vendor_28de_Product_11ff.kl — not found → falls back to Generic.kl,
 # which maps ABS_RX→AXIS_RX, ABS_RY→AXIS_RY. Most games expect the right stick on
 # AXIS_Z/AXIS_RZ (like a real Xbox 360, Vendor_045e_Product_028e.kl).
-# Bazzite uses overlay; our overlay is disabled (case-folding ext4 on /home) →
-# write kl directly into system.img.
 KL_PATH="system/usr/keylayout/Vendor_28de_Product_11ff.kl"
 # Content mirrors Vendor_045e_Product_028e.kl (Xbox 360).
 # ABS_RX(0x03)→Z, ABS_RY(0x04)→RZ — what Android games expect from the right stick.
@@ -200,61 +232,69 @@ key 314   BUTTON_SELECT
 key 316   BUTTON_MODE
 key 315   BUTTON_START
 KLEOF
-# Already-done check: debugfs reads the ext4 image directly without mounting and
-# without stopping the container — system.img is mounted inside the lxc
-# namespace and isn't accessible via the host rootfs. Checks not just whether
-# the file exists, but its SIZE too: if a previous run failed with "no space
-# left" right after creating the file but before writing its content, a
-# zero-size stub file would remain — "Type: regular" matches that too, and
-# without the Size check the script would forever consider this already done.
-IMG="$WAYDROID_DATA/images/system.img"
-KL_STAT="$(debugfs -R "stat /$KL_PATH" "$IMG" 2>/dev/null)"
-# head -1: debugfs prints "Size:" twice — once for the real file size
-# (User/Group/Project/Size line), and again on the "Fragment: ... Size: 0" line
-# (a legacy ext2 field, always 0). Without head -1 both values got concatenated
-# via newline → "392\n0" → arithmetic error in the comparison below.
-# || true: on a truly fresh image the path doesn't exist at all (not a
-# zero-size stub) → KL_STAT is empty → grep finds no "Size:" → exit 1 →
-# set -e silently kills the script right here, with no error printed at all.
-# Verified: this isn't about pipes/pipefail — plain `VAR=$(cmd)` under set -e
-# reacts to cmd's own exit code, not just to "visible" command failures.
-KL_SIZE="$(grep -oE 'Size: [0-9]+' <<<"$KL_STAT" | head -1 | grep -oE '[0-9]+')" || true
-if grep -q "Type: regular" <<<"$KL_STAT" && [[ "${KL_SIZE:-0}" -gt 0 ]]; then
-  skip "$KL_PATH"
+
+if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
+  # Overlay supported — Bazzite-style: static file in overlay/ (an EXTRA
+  # lowerdir, see images.py mount_rootfs: lowerdir=[overlay, rootfs]), not
+  # overlay_rw (upperdir). Plain host file — no resize2fs/e2fsck/loop-mount/
+  # debugfs needed — and it survives `waydroid upgrade` (which only wipes
+  # overlay_rw/overlay_work, not overlay/).
+  printf '%s\n' "$KL_CONTENT" | write_file "$WAYDROID_DATA/overlay/$KL_PATH" 644
 else
-  WAS_ACTIVE=false
-  if systemctl is-active --quiet waydroid-container.service 2>/dev/null; then
-    WAS_ACTIVE=true
-    sudo systemctl stop waydroid-container.service && sleep 2
-  fi
+  # Overlay not supported — write kl directly into system.img.
+  # Already-done check: debugfs reads the ext4 image directly without mounting and
+  # without stopping the container — system.img is mounted inside the lxc
+  # namespace and isn't accessible via the host rootfs. Checks not just whether
+  # the file exists, but its SIZE too: if a previous run failed with "no space
+  # left" right after creating the file but before writing its content, a
+  # zero-size stub file would remain — "Type: regular" matches that too, and
+  # without the Size check the script would forever consider this already done.
+  KL_STAT="$(debugfs -R "stat /$KL_PATH" "$IMG" 2>/dev/null)"
+  # head -1: debugfs prints "Size:" twice — once for the real file size
+  # (User/Group/Project/Size line), and again on the "Fragment: ... Size: 0"
+  # line (a legacy ext2 field, always 0). Without head -1 both values got
+  # concatenated via newline → "392\n0" → arithmetic error in the comparison
+  # below. || true: on a truly fresh image the path doesn't exist at all (not
+  # a zero-size stub) → KL_STAT is empty → grep finds no "Size:" → exit 1 →
+  # set -e silently kills the script right here, with no error printed at all.
+  KL_SIZE="$(grep -oE 'Size: [0-9]+' <<<"$KL_STAT" | head -1 | grep -oE '[0-9]+')" || true
+  if grep -q "Type: regular" <<<"$KL_STAT" && [[ "${KL_SIZE:-0}" -gt 0 ]]; then
+    skip "$KL_PATH"
+  else
+    WAS_ACTIVE=false
+    if systemctl is-active --quiet waydroid-container.service 2>/dev/null; then
+      WAS_ACTIVE=true
+      sudo systemctl stop waydroid-container.service && sleep 2
+    fi
 
-  # Different LineageOS builds ship with different amounts of free space inside
-  # system.img — sometimes it's zero (that's exactly what happened on a fresh
-  # reinstall: 2.5G/2.5G, 100%, 0 free blocks). Don't rely on luck for any
-  # particular build: count free blocks ahead of time and grow the image
-  # idempotently BEFORE attempting the write, instead of reacting to a failed tee.
-  FREE_KB="$(dumpe2fs -h "$IMG" 2>/dev/null | awk -F: '
-    /Free blocks/ { gsub(/ /,"",$2); free=$2 }
-    /Block size/  { gsub(/ /,"",$2); bs=$2 }
-    END { if (bs) print free * bs / 1024; else print 0 }')"
-  if [[ "${FREE_KB:-0}" -lt 4096 ]]; then
-    # e2fsck exit code 1 = "errors corrected" — that's success, not a failure
-    # (see man e2fsck).
-    sudo e2fsck -fy "$IMG" >/dev/null || true
-    sudo truncate -s +32M "$IMG"
-    sudo resize2fs "$IMG" >/dev/null
-    ok "system.img grown by 32M (had ${FREE_KB:-0}KB free)"
-  fi
+    # Different LineageOS builds ship with different amounts of free space inside
+    # system.img — sometimes it's zero (that's exactly what happened on a fresh
+    # reinstall: 2.5G/2.5G, 100%, 0 free blocks). Don't rely on luck for any
+    # particular build: count free blocks ahead of time and grow the image
+    # idempotently BEFORE attempting the write, instead of reacting to a failed tee.
+    FREE_KB="$(dumpe2fs -h "$IMG" 2>/dev/null | awk -F: '
+      /Free blocks/ { gsub(/ /,"",$2); free=$2 }
+      /Block size/  { gsub(/ /,"",$2); bs=$2 }
+      END { if (bs) print free * bs / 1024; else print 0 }')"
+    if [[ "${FREE_KB:-0}" -lt 4096 ]]; then
+      # e2fsck exit code 1 = "errors corrected" — that's success, not a failure
+      # (see man e2fsck).
+      sudo e2fsck -fy "$IMG" >/dev/null || true
+      sudo truncate -s +32M "$IMG"
+      sudo resize2fs "$IMG" >/dev/null
+      ok "system.img grown by 32M (had ${FREE_KB:-0}KB free)"
+    fi
 
-  TMP_MNT="$(mktemp -d /tmp/waydroid-sys-XXXXXX)"
-  sudo mount -o rw,loop "$IMG" "$TMP_MNT"
-  printf '%s\n' "$KL_CONTENT" | sudo tee "$TMP_MNT/$KL_PATH" >/dev/null
-  sudo umount "$TMP_MNT" && rmdir "$TMP_MNT"
-  if $WAS_ACTIVE; then
-    sudo systemctl start waydroid-container.service
-    ensure_container_active
+    TMP_MNT="$(mktemp -d /tmp/waydroid-sys-XXXXXX)"
+    sudo mount -o rw,loop "$IMG" "$TMP_MNT"
+    printf '%s\n' "$KL_CONTENT" | sudo tee "$TMP_MNT/$KL_PATH" >/dev/null
+    sudo umount "$TMP_MNT" && rmdir "$TMP_MNT"
+    if $WAS_ACTIVE; then
+      sudo systemctl start waydroid-container.service
+      ensure_container_active
+    fi
+    ok "$KL_PATH → Android system.img"
   fi
-  ok "$KL_PATH → Android system.img"
 fi
 
 # ── 5. firewalld ──────────────────────────────────────────────────────────
@@ -307,29 +347,34 @@ fi
 # the "add" event arrived before forwarding started. Writing "add" to sysfs manually
 # makes the kernel resend the udev event → Android registers the device.
 # Script and sudoers in /etc/ → overlay → /var → survive SteamOS updates.
-write_etc /etc/waydroid-fix-controllers <<'FIXSCRIPT' || true
+write_file /etc/waydroid-fix-controllers 755 <<'FIXSCRIPT' || true
 #!/bin/bash
 echo add | tee /sys/devices/virtual/input/input*/event*/uevent >/dev/null 2>&1 || true
 FIXSCRIPT
-sudo chmod +x /etc/waydroid-fix-controllers
 
 # IMPORTANT: the filename must sort after wheel/wheel-prepare-oobe-test alphabetically —
 # otherwise %wheel ALL=(ALL) ALL overrides our NOPASSWD (last rule wins).
 # zz-... is guaranteed to be last among all SteamOS sudoers.d files.
 sudo rm -f /etc/sudoers.d/waydroid-fix-controllers 2>/dev/null || true
-write_etc /etc/sudoers.d/zz-waydroid-fix-controllers <<SUDOERS || true
+write_file /etc/sudoers.d/zz-waydroid-fix-controllers 440 <<SUDOERS || true
 deck ALL=(ALL) NOPASSWD: /etc/waydroid-fix-controllers
 SUDOERS
-sudo chmod 440 /etc/sudoers.d/zz-waydroid-fix-controllers
 ok "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
 
 # ── 7. libhoudini (ARM translation) ──────────────────────────────────────
 step "7/7  libhoudini — ARM translation"
 
-# Check the real file via debugfs, not ro.dalvik.vm.native.bridge in
-# waydroid.cfg — `waydroid init` sets that property by default regardless of
-# whether libhoudini.so was ever actually copied in.
+# mount_overlays was already synced to what this filesystem supports in step
+# 4/7 (overlayfs_supported()) — install_app() (waydroid_script) branches on
+# the same flag via its own container.use_overlayfs(). Check the real file in
+# the same place, not ro.dalvik.vm.native.bridge in waydroid.cfg — `waydroid
+# init` sets that property by default regardless of whether libhoudini.so was
+# ever actually copied in.
 houdini_installed() {
+  if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
+    [[ -s "$WAYDROID_DATA/overlay/system/lib64/libhoudini.so" ]]
+    return
+  fi
   local st size
   st="$(debugfs -R "stat /system/lib64/libhoudini.so" "$IMG" 2>/dev/null)"
   size="$(grep -oE 'Size: [0-9]+' <<<"$st" | head -1 | grep -oE '[0-9]+')" || true
