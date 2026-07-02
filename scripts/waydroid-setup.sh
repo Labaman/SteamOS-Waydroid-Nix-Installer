@@ -164,15 +164,28 @@ else
 fi
 
 # Gamepad: Android only detects input devices (including gamepads) when Waydroid
-# forwards udev/uevent events to the container — enabled by these props. Appended to
-# base.prop (not overwritten — GPU/libhoudini props from init are already there).
+# forwards udev/uevent events to the container — enabled by these props.
 # Source: ryanrudolfoba/extras/waydroid_base.prop. Applied on session start.
+#
+# Written to both: waydroid_base.prop for immediate effect, and waydroid.cfg's
+# [properties] section because `waydroid upgrade` (runs internally after every
+# libhoudini install) fully rewrites base.prop from cfg[properties] alone — a
+# prop only appended to the file gets silently wiped on the next install.
 for prop in persist.waydroid.udev=true persist.waydroid.uevent=true; do
+  key="${prop%%=*}"
+
   if grep -qxF "$prop" "$WAYDROID_DATA/waydroid_base.prop" 2>/dev/null; then
-    skip "prop $prop"
+    skip "prop $prop in waydroid_base.prop"
   else
     echo "$prop" | sudo tee -a "$WAYDROID_DATA/waydroid_base.prop" >/dev/null
     ok "prop $prop → waydroid_base.prop"
+  fi
+
+  if sudo grep -qxE "$key[[:space:]]*=[[:space:]]*true" "$WAYDROID_CFG" 2>/dev/null; then
+    skip "prop $key in waydroid.cfg [properties]"
+  else
+    sudo sed -i "/^\[properties\]/a $key = true" "$WAYDROID_CFG"
+    ok "prop $key → waydroid.cfg [properties] (survives waydroid upgrade)"
   fi
 done
 
@@ -334,19 +347,29 @@ fi
 # the "add" event arrived before forwarding started. Writing "add" to sysfs manually
 # makes the kernel resend the udev event → Android registers the device.
 # Script and sudoers in /etc/ → overlay → /var → survive SteamOS updates.
-write_file /etc/waydroid-fix-controllers 755 <<'FIXSCRIPT' || true
+#
+# if, not `|| true` — need the real status for the honest report below.
+FIXCTL_CHANGED=false
+if write_file /etc/waydroid-fix-controllers 755 <<'FIXSCRIPT'
 #!/bin/bash
 echo add | tee /sys/devices/virtual/input/input*/event*/uevent >/dev/null 2>&1 || true
 FIXSCRIPT
+then FIXCTL_CHANGED=true; fi
 
 # IMPORTANT: the filename must sort after wheel/wheel-prepare-oobe-test alphabetically —
 # otherwise %wheel ALL=(ALL) ALL overrides our NOPASSWD (last rule wins).
 # zz-... is guaranteed to be last among all SteamOS sudoers.d files.
 sudo rm -f /etc/sudoers.d/waydroid-fix-controllers 2>/dev/null || true
-write_file /etc/sudoers.d/zz-waydroid-fix-controllers 440 <<SUDOERS || true
+if write_file /etc/sudoers.d/zz-waydroid-fix-controllers 440 <<SUDOERS
 deck ALL=(ALL) NOPASSWD: /etc/waydroid-fix-controllers
 SUDOERS
-ok "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
+then FIXCTL_CHANGED=true; fi
+
+if $FIXCTL_CHANGED; then
+  ok "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
+else
+  skip "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
+fi
 
 # ── 7. libhoudini (ARM translation) ──────────────────────────────────────
 step "7/7  libhoudini — ARM translation"
