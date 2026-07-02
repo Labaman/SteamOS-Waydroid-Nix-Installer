@@ -65,8 +65,25 @@ step "1/7  Check dependencies"
 [[ -x "$NIX_BIN/lxc-start" ]] || die "lxc not found — run: home-manager switch"
 ok "waydroid and lxc found"
 
-# ── 2. /etc files (overlay → /var → survive SteamOS updates) ─────────────
+# ── 2. /etc files ─────────────────────────────────────────────────────────
 step "2/7  /etc configs (systemd, D-Bus, gbinder)"
+
+# SteamOS atomic updates (RAUC) wipe /etc except the keep-list: base
+# /usr/lib/rauc/atomic-update-keep.conf + user /etc/atomic-update.conf.d/*.conf.
+# The base list already covers /etc/systemd/system/*.service and *.wants/**
+# (our unit + its enable symlink survive), but NOT dbus/gbinder/sudoers/firewalld
+# — without listing them Waydroid breaks after every update ("AccessDenied:
+# Request to own name refused by policy"). The drop-in matches the keep-list
+# itself, so it's self-sustaining.
+write_file /etc/atomic-update.conf.d/waydroid.conf <<'KEEPLIST' || true
+# Waydroid files RAUC would otherwise wipe on a SteamOS atomic update.
+# The systemd unit + enable symlink aren't needed here — the base keep-list covers them.
+/etc/dbus-1/system.d/id.waydro.Container.conf
+/etc/gbinder.d/waydroid.conf
+/etc/waydroid-fix-controllers
+/etc/sudoers.d/zz-waydroid-fix-controllers
+/etc/firewalld/zones/trusted.xml
+KEEPLIST
 
 RELOAD_SYSTEMD=false
 RELOAD_DBUS=false
@@ -462,5 +479,6 @@ printf '  Reminder: BIOS → UMA Frame Buffer Size → 4G (for games)\n\n'
 printf '  \033[33mRe-run this script after:\033[0m\n'
 printf '    - waydroid upgrade — fully rewrites system.img/vendor.img and wipes the\n'
 printf '      overlay, the right-stick .kl fix and libhoudini get lost, need to reapply\n'
-printf '    - major SteamOS updates — just in case; configs in /etc/ survive updates\n'
-printf '      on their own, but the script is idempotent and it will not hurt to rerun\n\n'
+printf '    - a SteamOS update — /etc configs are now under the RAUC keep-list\n'
+printf '      (/etc/atomic-update.conf.d/waydroid.conf) and survive; if something\n'
+printf '      is off, the script is idempotent and will restore it\n\n'
