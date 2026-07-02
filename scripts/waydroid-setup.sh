@@ -15,12 +15,10 @@ skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }
 step() { printf '\n\033[1;34m══ %s ══\033[0m\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Writes a file (to /etc or Waydroid's data dir) only if the content changed.
-# Returns 0 (written) / 1 (unchanged). install -D -m MODE, not mkdir+cp: mktemp
-# creates tmp at 600, plain cp would keep that → root-only file, unreadable by
-# non-root daemons (dbus-broker etc). mode is a parameter because some callers
-# chmod afterward (+x, 440 for sudoers) — comparing against a hardcoded 644
-# made those files look "different" forever and rewrote them on every run.
+# Writes a file (to /etc or Waydroid's data dir) only if content/mode changed.
+# mode is a parameter, not hardcoded 644: some callers chmod afterward (+x,
+# 440 for sudoers), and comparing against 644 made those look "different"
+# forever, rewriting them on every run.
 write_file() {
   local dest="$1" mode="${2:-644}"
   local tmp; tmp=$(mktemp)
@@ -34,15 +32,10 @@ write_file() {
   ok "Written $dest"
 }
 
-# Kernel error from waydroid.log when overlay mount fails: "overlay: case-
-# insensitive capable filesystem on .../overlay not supported" — the ext4
-# casefold feature flag on the whole filesystem (not a per-directory chattr
-# +F), affects the entire partition. Checked directly via tune2fs on whatever
-# device backs Waydroid's data (findmnt, not a hardcoded device path — eMMC
-# Steam Decks name their disk differently). Checked on every run, not cached:
-# if SteamOS ever drops casefold from /home, overlay becomes the sturdier
-# option for ANY addon (translator, root, dock — layered instead of baked
-# into system.img), and the script should pick that up automatically.
+# waydroid.log shows the real error: ext4's casefold feature flag (whole
+# filesystem, not a per-dir chattr +F) blocks overlay mounts. Checked via
+# tune2fs on whatever device backs Waydroid's data, every run — so the script
+# adapts automatically if that ever changes.
 overlayfs_supported() {
   local dev features
   dev="$(findmnt -n -o SOURCE --target "$WAYDROID_DATA" 2>/dev/null)" || return 1
@@ -183,11 +176,8 @@ for prop in persist.waydroid.udev=true persist.waydroid.uevent=true; do
   fi
 done
 
-# waydroid.cfg (created by init above) defaults mount_overlays=True. In that
-# mode install_app() (waydroid_script) and our kl-fix below write into the
-# overlay dir instead of system.img — see container.py use_overlayfs(). Sync
-# mount_overlays to what this filesystem can actually do BEFORE the kl-fix and
-# libhoudini (step 7) — both branch on the same flag below.
+# Sync mount_overlays to what this filesystem can actually do, before the
+# kl-fix and libhoudini (step 7) — both branch on it below.
 if overlayfs_supported; then
   if grep -q '^mount_overlays = False$' "$WAYDROID_CFG" 2>/dev/null; then
     sudo sed -i 's/^mount_overlays = False$/mount_overlays = True/' "$WAYDROID_CFG"
@@ -234,11 +224,8 @@ key 315   BUTTON_START
 KLEOF
 
 if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
-  # Overlay supported — Bazzite-style: static file in overlay/ (an EXTRA
-  # lowerdir, see images.py mount_rootfs: lowerdir=[overlay, rootfs]), not
-  # overlay_rw (upperdir). Plain host file — no resize2fs/e2fsck/loop-mount/
-  # debugfs needed — and it survives `waydroid upgrade` (which only wipes
-  # overlay_rw/overlay_work, not overlay/).
+  # Overlay supported — Bazzite-style: plain file in overlay/ (extra lowerdir,
+  # not upperdir) — no resize2fs/loop-mount/debugfs, survives `waydroid upgrade`.
   printf '%s\n' "$KL_CONTENT" | write_file "$WAYDROID_DATA/overlay/$KL_PATH" 644
 else
   # Overlay not supported — write kl directly into system.img.
@@ -364,12 +351,10 @@ ok "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
 # ── 7. libhoudini (ARM translation) ──────────────────────────────────────
 step "7/7  libhoudini — ARM translation"
 
-# mount_overlays was already synced to what this filesystem supports in step
-# 4/7 (overlayfs_supported()) — install_app() (waydroid_script) branches on
-# the same flag via its own container.use_overlayfs(). Check the real file in
-# the same place, not ro.dalvik.vm.native.bridge in waydroid.cfg — `waydroid
-# init` sets that property by default regardless of whether libhoudini.so was
-# ever actually copied in.
+# mount_overlays was synced in step 4/7 — install_app() branches on the same
+# flag, so check the real file in the same place it would write it, not
+# ro.dalvik.vm.native.bridge (waydroid init sets that regardless of whether
+# libhoudini.so was actually copied in).
 houdini_installed() {
   if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
     [[ -s "$WAYDROID_DATA/overlay/system/lib64/libhoudini.so" ]]
