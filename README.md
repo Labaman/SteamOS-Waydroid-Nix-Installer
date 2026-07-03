@@ -4,7 +4,7 @@
 
 Installs [Waydroid](https://waydro.id) (Android 13 + GAPPS) on Steam Deck via Nix + Home Manager.
 
-Does everything [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) does — base SteamOS fixes, nixGL, shell prompt, Wayland — plus installs Android in an LXC container with a Game Mode launcher and gamepad support.
+Does everything [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) does — base SteamOS fixes, nixGL, shell prompt, native Wayland for Nix GUI apps (Electron/Chromium + Qt) — plus installs Android in an LXC container with a Game Mode launcher and gamepad support.
 
 Packages and settings survive SteamOS updates.
 
