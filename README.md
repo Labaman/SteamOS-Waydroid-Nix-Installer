@@ -64,3 +64,10 @@ See [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) fo
 - [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — Game Mode cage launcher approach and `waydroid_base.prop` udev/uevent props
 - [Bazzite](https://github.com/ublue-os/bazzite) — uevent retrigger pattern for gamepad support
 - [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — libhoudini ARM translation installer
+- The Android Open Source Project — the right-stick key layout (Apache-2.0)
+
+## License
+
+Licensed under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later) — see [LICENSE](LICENSE).
+
+Third-party attributions are in [NOTICE](NOTICE). Runtime dependencies (Waydroid, waydroid_script, ARM translators) are fetched or invoked at install time and keep their own licenses — they are not bundled in this repository.

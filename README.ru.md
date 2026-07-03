@@ -64,3 +64,10 @@ waydroid-setup
 - [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — подход с cage-лаунчером для Game Mode и udev/uevent пропсы из `waydroid_base.prop`
 - [Bazzite](https://github.com/ublue-os/bazzite) — паттерн uevent-ретриггера для поддержки геймпада
 - [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — установщик libhoudini (ARM-трансляция)
+- The Android Open Source Project — раскладка правого стика (Apache-2.0)
+
+## Лицензия
+
+Под **GNU General Public License v3.0 или новее** (GPL-3.0-or-later) — см. [LICENSE](LICENSE).
+
+Атрибуции сторонних материалов — в [NOTICE](NOTICE). Рантайм-зависимости (Waydroid, waydroid_script, ARM-трансляторы) скачиваются или вызываются при установке и сохраняют свои лицензии — в репозитории они не бандлятся.
