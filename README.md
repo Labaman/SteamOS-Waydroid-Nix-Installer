@@ -1,4 +1,4 @@
-# SteamOS-Waydroid-Nix-Installer
+# SteamOS Waydroid Nix Installer
 
 **English** | [Русский](README.ru.md)
 
