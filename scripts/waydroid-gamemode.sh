@@ -10,8 +10,9 @@ printf '\n===== waydroid-gamemode %s =====\n' "$(date)"
 
 # Steam Game Mode injects LD_PRELOAD=gameoverlayrenderer.so (depends on libGL.so.1) and
 # steam-runtime LD_LIBRARY_PATH — both break Nix binaries (cage, waydroid: "libGL.so.1 not
-# found", even bash fails to start). Clear them. cage is wrapped with nixGL → it sets up
-# LD_LIBRARY_PATH for the GPU itself. (Reproduced: LD_PRELOAD=overlay → Nix bash fails on libGL.)
+# found", even bash fails to start). Clear them. cage finds the GPU drivers itself via
+# /run/opengl-driver (targets.genericLinux.gpu), it needs no LD_LIBRARY_PATH.
+# (Reproduced: LD_PRELOAD=overlay → Nix bash fails on libGL.)
 unset LD_PRELOAD LD_LIBRARY_PATH
 
 NIX_BIN="$HOME/.nix-profile/bin"

@@ -2,9 +2,9 @@
 
 **English** | [Русский](README.ru.md)
 
-Installs [Waydroid](https://waydro.id) (Android 13 + GAPPS) on Steam Deck via Nix + Home Manager.
+Installs [Waydroid](https://waydro.id) (Android 13 + GAPPS) on SteamOS via Nix + Home Manager.
 
-Does everything [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) does — base SteamOS fixes, nixGL, shell prompt, native Wayland for Nix GUI apps (Electron/Chromium + Qt) — plus installs Android in an LXC container with a Game Mode launcher and gamepad support.
+Does everything [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) does — base SteamOS fixes, GPU drivers for Nix GUI apps, shell prompt, native Wayland for Nix GUI apps (Electron/Chromium + Qt) — plus installs Android in an LXC container with a Game Mode launcher and gamepad support.
 
 Packages and settings survive SteamOS updates.
 
@@ -12,7 +12,7 @@ Packages and settings survive SteamOS updates.
 
 | Feature | Notes |
 |---------|-------|
-| Base SteamOS fixes | See [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) for details |
+| Base SteamOS fixes | See [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for details |
 | Waydroid | Android 13 + GAPPS in an LXC container |
 | Game Mode launcher | `waydroid-gamemode` — add to Steam as a non-Steam game |
 | Gamepad support | Right stick mapped correctly for Android games |
@@ -38,6 +38,12 @@ git clone https://github.com/Labaman/SteamOS-Waydroid-Nix-Installer ~/.config/ho
 home-manager switch --flake ~/.config/home-manager#deck
 ```
 
+Set up GPU drivers for Nix GUI apps (asks for the sudo password; re-run it when `switch` warns that GPU drivers require an update):
+
+```bash
+nix-gpu-setup
+```
+
 Then run the Waydroid setup script once (~3 GB download for the Android image):
 
 ```bash
@@ -57,7 +63,7 @@ After `waydroid-setup` completes, add Waydroid to Steam:
 ## Shell (optional)
 
 Uncomment one shell block in `home.nix` (`bash`, `zsh`, or `fish`) to enable the Starship prompt and ensure session variables reach GUI apps.
-See [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) for a full shell comparison and login-shell change instructions.
+See [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for a full shell comparison and login-shell change instructions.
 
 ## Credits
 

@@ -2,9 +2,9 @@
 
 [English](README.md) | **Русский**
 
-Устанавливает [Waydroid](https://waydro.id) (Android 13 + GAPPS) на Steam Deck через Nix + Home Manager.
+Устанавливает [Waydroid](https://waydro.id) (Android 13 + GAPPS) на SteamOS через Nix + Home Manager.
 
-Делает всё то же, что [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) — базовые фиксы SteamOS, nixGL, строка приглашения оболочки, нативный Wayland для Nix-GUI-приложений (Electron/Chromium + Qt) — плюс устанавливает Android в LXC-контейнере с лаунчером для Game Mode и поддержкой геймпада.
+Делает всё то же, что [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) — базовые фиксы SteamOS, GPU-драйверы для Nix-GUI-приложений, строка приглашения оболочки, нативный Wayland для Nix-GUI-приложений (Electron/Chromium + Qt) — плюс устанавливает Android в LXC-контейнере с лаунчером для Game Mode и поддержкой геймпада.
 
 Пакеты и настройки не слетают при обновлениях SteamOS.
 
@@ -12,7 +12,7 @@
 
 | Фикс / Фича | Описание |
 |-------------|----------|
-| Базовые фиксы SteamOS | Подробнее: [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck) |
+| Базовые фиксы SteamOS | Подробнее: [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) |
 | Waydroid | Android 13 + GAPPS в LXC-контейнере |
 | Лаунчер для Game Mode | `waydroid-gamemode` — добавить в Steam как стороннюю игру |
 | Поддержка геймпада | Правый стик корректно маппируется для Android-игр |
@@ -38,6 +38,12 @@ git clone https://github.com/Labaman/SteamOS-Waydroid-Nix-Installer ~/.config/ho
 home-manager switch --flake ~/.config/home-manager#deck
 ```
 
+Настроить GPU-драйверы для Nix GUI-приложений (спросит пароль sudo; перезапускать, когда `switch` предупреждает, что драйверы требуют обновления):
+
+```bash
+nix-gpu-setup
+```
+
 Затем запустить скрипт установки Waydroid один раз (~3 ГБ для образа Android):
 
 ```bash
@@ -57,7 +63,7 @@ waydroid-setup
 ## Оболочка (опционально)
 
 Раскомментируй один блок оболочки в `home.nix` (`bash`, `zsh` или `fish`), чтобы включить строку приглашения Starship и гарантировать попадание переменных сессии в графические приложения.
-Подробное сравнение оболочек и инструкции по смене логин-шелла — в [nix-hm-conf-steamdeck](https://github.com/Labaman/nix-hm-conf-steamdeck).
+Подробное сравнение оболочек и инструкции по смене логин-шелла — в [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
 
 ## Благодарности
 

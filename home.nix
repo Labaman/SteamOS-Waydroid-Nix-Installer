@@ -1,7 +1,7 @@
-{ config, lib, pkgs, nixgl, ... }:
+{ config, lib, pkgs, ... }:
 
-# Home Manager config for Steam Deck (SteamOS, non-NixOS) with Waydroid.
-# Solves SteamDeck-specific issues and installs Android via Waydroid in LXC.
+# Home Manager config for SteamOS (non-NixOS) with Waydroid.
+# Solves SteamOS-specific issues and installs Android via Waydroid in LXC.
 
 let
   # Keep Flatpak first (set by /etc/profile -> flatpak.sh), append Nix+system.
@@ -23,22 +23,22 @@ in
   targets.genericLinux.enable = true;
   xdg.enable = true;
 
-  # nixGL: GPU drivers for Nix GUI apps (Deck = AMD). mesa = OpenGL, vulkan = RADV.
-  # Use: home.packages = [ (config.lib.nixGL.wrap pkgs.<app>) ];  or  nixGLMesa <app>
-  targets.genericLinux.nixGL = {
-    packages = nixgl.packages;
-    defaultWrapper = "mesa";
-    vulkan.enable = true;
-    installScripts = [ "mesa" ];
+  # GPU drivers for Nix GUI apps (mesa: OpenGL + Vulkan/RADV) via /run/opengl-driver,
+  # like on NixOS — no per-package wrappers needed. The system part (tmpfiles.d in
+  # /etc) is installed once with `nix-gpu-setup` (sudo); switch warns when the
+  # drivers change and it has to be re-run.
+  targets.genericLinux.gpu.enable = true;
+  home.file.".local/bin/nix-gpu-setup" = {
+    executable = true;
+    source = ./scripts/nix-gpu-setup.sh;
   };
 
-  # Example: browser wrapped with nixGL via the programs.chromium HM module.
-  # The module generates a proper .desktop entry and handles XDG mime types;
-  # nixGL.wrap injects the host GPU drivers so the app can render on the Deck.
-  # Swap pkgs.google-chrome for pkgs.brave / pkgs.chromium / pkgs.ungoogled-chromium etc.
+  # Example: browser via the programs.chromium HM module.
+  # The module generates a proper .desktop entry and handles XDG mime types.
+  # Swap pkgs.google-chrome for pkgs.chromium / pkgs.ungoogled-chromium etc.
   # programs.chromium = {
   #   enable = true;
-  #   package = config.lib.nixGL.wrap pkgs.google-chrome;
+  #   package = pkgs.google-chrome;
   #   commandLineArgs = [
   #     "--enable-features=VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,ParallelDownloading"
   #     "--ignore-gpu-blocklist"
@@ -67,7 +67,7 @@ in
       fi
     '';
 
-  # Native Wayland for Nix GUI apps (SteamOS 3.8).
+  # Native Wayland for Nix GUI apps (SteamOS 3.8+).
   home.sessionVariables = {
     NIXOS_OZONE_WL = "1";
     QT_QPA_PLATFORM = "wayland;xcb";
@@ -105,22 +105,24 @@ in
   home.sessionPath = [ "$HOME/.local/bin" ];
 
   # Starship prompt — shell-independent (same toml renders in bash, zsh, and fish).
-  # Matches the default SteamOS bash style 1:1 (__steamos_prompt_command in
-  # /etc/bash.bashrc): (rc)(user@host dir)$ — rc in red only on a non-zero exit
-  # code, user@host as one green block, parens (not square brackets). Git
-  # branch/status is our own addition — the original bash prompt has no git info:
+  # Matches the default SteamOS 3.9 bash style 1:1 (__holo_ps1/__holo_prompt_command
+  # in /etc/bash.bashrc): (rc)(user@host dir)$ — rc only on a non-zero exit code with
+  # just the number in red, user@host as one green block, dir in blue, parens (not
+  # square brackets) and `$` uncolored. Git branch/status is our own addition — the
+  # original bash prompt has no git info:
   #   (deck@steamdeck ~)$                outside a repo
   #   (deck@steamdeck myapp) [main]$     inside a repo
   programs.starship = {
     enable = true;
     settings = {
-      format = "$status\\($username$hostname $directory\\)( \\[$git_branch$git_status\\])$character ";
+      # No space after $character: the module adds it itself ("$symbol ").
+      format = "$status\\($username$hostname $directory\\)( \\[$git_branch$git_status\\])$character";
       add_newline = false;
 
       status = {
         disabled = false;
         style = "bold red";
-        format = "[($status)]($style)";
+        format = "\\([$status]($style)\\)";
       };
 
       username = {
@@ -165,8 +167,8 @@ in
       };
 
       character = {
-        success_symbol = "[\\$](bold white)";
-        error_symbol   = "[\\$](bold red)";
+        success_symbol = "\\$";
+        error_symbol   = "\\$";
       };
     };
   };
@@ -186,8 +188,8 @@ in
     # Game Mode launcher uses cage (a nested Wayland compositor) because a direct
     # waydroid show-full-ui does not create a gamescope window (same approach as
     # ryanrudolfoba / Bazzite).
-    (config.lib.nixGL.wrap pkgs.cage) # cage renders on GPU → needs nixGL wrapper
-    pkgs.wlr-randr                    # sets output resolution inside cage
+    pkgs.cage      # renders on GPU (drivers via /run/opengl-driver)
+    pkgs.wlr-randr # sets output resolution inside cage
 
     # Add your own packages here, e.g.:
     # pkgs.ripgrep

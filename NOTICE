@@ -36,6 +36,6 @@ and covered by their own licenses)
 * Waydroid — GPL-3.0-or-later — https://github.com/waydroid/waydroid
 * casualsnek/waydroid_script — GPL-3.0 — cloned at install time to add
   libhoudini / libndk ARM translation
-* Nix — LGPL-2.1 ; nixpkgs, Home Manager, nixGL — MIT
+* Nix — LGPL-2.1 ; nixpkgs, Home Manager — MIT
 * libhoudini (Intel) and libndk_translation (Google) — proprietary; downloaded
   at install time by waydroid_script, never redistributed in this repository
