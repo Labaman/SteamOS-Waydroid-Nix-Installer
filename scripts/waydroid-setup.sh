@@ -165,11 +165,23 @@ else
 fi
 
 # ── 4. waydroid init ──────────────────────────────────────────────────────
+# Init is done only when BOTH images exist. If the vendor download was interrupted
+# (SourceForge resets connections), only system.img and a cfg with
+# vendor_datetime = 0 are left — Waydroid then reports "not initialized", and a
+# plain `init` on an existing cfg won't fetch the rest, hence -f.
 step "4/7  waydroid init (Android 13 + GAPPS, ~3 GB)"
-if [[ -f "$WAYDROID_DATA/images/system.img" ]]; then
+if [[ -f "$WAYDROID_DATA/images/system.img" && -f "$WAYDROID_DATA/images/vendor.img" ]]; then
   skip "Android images already downloaded"
 else
-  sudo PATH="$NIX_BIN:$PATH" "$WAYDROID_BIN" init -s GAPPS
+  init_args=(init -s GAPPS)
+  if [[ -e "$WAYDROID_DATA/images/system.img" || -e "$WAYDROID_DATA/images/vendor.img" || -e "$WAYDROID_CFG" ]]; then
+    init_args+=(-f)
+    printf '\033[33m→\033[0m Previous init did not finish (an image is missing) — rerunning with -f\n'
+  fi
+  sudo PATH="$NIX_BIN:$PATH" "$WAYDROID_BIN" "${init_args[@]}" \
+    || die "waydroid init failed (interrupted download?) — just run waydroid-setup again"
+  [[ -f "$WAYDROID_DATA/images/system.img" && -f "$WAYDROID_DATA/images/vendor.img" ]] \
+    || die "system.img or vendor.img missing after waydroid init"
   ok "waydroid init complete"
 fi
 
