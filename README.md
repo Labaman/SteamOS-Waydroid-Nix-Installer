@@ -35,8 +35,10 @@ Clone and apply:
 
 ```bash
 git clone https://github.com/Labaman/SteamOS-Waydroid-Nix-Installer ~/.config/home-manager
-home-manager switch --flake ~/.config/home-manager#deck
+nix run home-manager/master -- switch
 ```
+
+The first run takes Home Manager straight from GitHub via `nix run` — no separate install needed. After that the `home-manager` command is in your profile, so later runs are just `home-manager switch`.
 
 Set up GPU drivers for Nix GUI apps (asks for the sudo password; re-run it when `switch` warns that GPU drivers require an update):
 
