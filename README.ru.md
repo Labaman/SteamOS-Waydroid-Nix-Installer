@@ -3,11 +3,11 @@
 [English](README.md) | **Русский**
 
 > [!WARNING]
-> ⚠️ **Обратите внимание!** Начиная с версии SteamOS 3.8.28 (ядро linux-neptune-618) поставляется
-> без драйвера Android binder (`CONFIG_ANDROID_BINDER_IPC` отключён), а Waydroid
-> без него не работает. Этот установщик собирает binder как внешний модуль под
-> текущее ядро, чтобы Waydroid работал уже сейчас — но правильное решение это
-> если Valve вернут binder в ядро SteamOS.
+> Начиная с версии SteamOS 3.8.28 (ядро linux-neptune-618) поставляется без драйвера
+> Android binder (`CONFIG_ANDROID_BINDER_IPC` отключён), а Waydroid без него не
+> работает. Этот установщик собирает binder под текущее ядро из штатных исходников
+> ядра (mainline) как загружаемый модуль, чтобы Waydroid работал уже сейчас — но
+> правильное решение это если Valve вернут binder в ядро SteamOS.
 >
 > 👉 Поддержите / подпишитесь на issue:
 > [ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848).

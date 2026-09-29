@@ -3,11 +3,11 @@
 **English** | [Русский](README.ru.md)
 
 > [!WARNING]
-> ⚠️ **Attention!** Starting with SteamOS 3.8.28 (the linux-neptune-618 kernel), SteamOS
-> ships without the Android binder driver (`CONFIG_ANDROID_BINDER_IPC` is disabled),
-> which Waydroid needs. This installer builds binder as an out-of-tree module for the
-> running kernel so Waydroid works today — but the proper fix is for Valve to re-enable
-> binder in the SteamOS kernel.
+> Starting with SteamOS 3.8.28 (the linux-neptune-618 kernel), SteamOS ships without
+> the Android binder driver (`CONFIG_ANDROID_BINDER_IPC` is disabled), which Waydroid
+> needs. This installer builds binder for the running kernel from the kernel's own
+> upstream sources as a loadable module, so Waydroid works today — but the proper fix
+> is for Valve to re-enable binder in the SteamOS kernel.
 >
 > 👉 Please upvote / subscribe to the issue:
 > [ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848).
