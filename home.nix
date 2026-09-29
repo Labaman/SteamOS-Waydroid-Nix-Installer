@@ -181,6 +181,8 @@ in
   # What Nix/HM covers:   packages below + scripts in ~/.local/bin/
   # What the script does: /etc/systemd, /etc/dbus-1, /etc/gbinder.d, firewalld
   #                       (require root; all survive SteamOS updates via /etc overlay)
+  #                       + builds the binder_linux module into /etc/waydroid-binder/
+  #                       when the kernel has no binder (SteamOS kernels 6.18+)
   home.packages = [
     pkgs.waydroid-nftables # Waydroid with nftables backend (required on SteamOS)
     pkgs.lxc               # lxc-start — used by waydroid as an external binary
@@ -201,6 +203,9 @@ in
     executable = true;
     source = ./scripts/waydroid-setup.sh;
   };
+  # anbox-modules compatibility with kernels 6.19+/7.x (zap_vma_range, binderfs dentries).
+  home.file.".local/share/waydroid-setup/binder-anbox-7.2.patch".source =
+    ./scripts/binder-anbox-7.2.patch;
 
   # Game Mode launcher — add to Steam as a non-Steam game:
   #   Games → Add a Non-Steam Game → Browse → ~/.local/bin/waydroid-gamemode

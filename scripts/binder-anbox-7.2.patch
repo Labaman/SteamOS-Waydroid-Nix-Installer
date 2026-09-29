@@ -1,0 +1,274 @@
+diff --git a/binder/Makefile b/binder/Makefile
+index ee0d72b..41fe082 100644
+--- a/binder/Makefile
++++ b/binder/Makefile
+@@ -2,6 +2,12 @@ ccflags-y += -I$(src) -Wno-int-conversion -DCONFIG_ANDROID_BINDER_DEVICES="\"bin
+ obj-m := binder_linux.o
+ binder_linux-y := deps.o binder.o binder_alloc.o binderfs.o
+ 
++# Newer kernels replaced zap_page_range_single() with zap_vma_range(vma, addr, size).
++# Detect by header, not by version: the exact version of the rename is not pinned.
++ifneq ($(shell grep -sw 'void zap_vma_range' $(srctree)/include/linux/mm.h),)
++ccflags-y += -DBINDER_HAVE_ZAP_VMA_RANGE
++endif
++
+ KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
+ 
+ all:
+diff --git a/binder/binder.c b/binder/binder.c
+index 721902a..7435346 100644
+--- a/binder/binder.c
++++ b/binder/binder.c
+@@ -76,6 +76,7 @@
+ #include "binder_alloc.h"
+ #include "binder_internal.h"
+ #include "binder_trace.h"
++#include "deps.h"
+ 
+ static HLIST_HEAD(binder_deferred_list);
+ static DEFINE_MUTEX(binder_deferred_lock);
+@@ -6194,6 +6195,10 @@ static int __init binder_init(void)
+ 	struct hlist_node *tmp;
+ 	char *device_names = NULL;
+ 
++	ret = binder_deps_init();
++	if (ret)
++		return ret;
++
+ 	ret = binder_alloc_shrinker_init();
+ 	if (ret)
+ 		return ret;
+diff --git a/binder/binder_alloc.c b/binder/binder_alloc.c
+index 45c2c56..ca9d272 100644
+--- a/binder/binder_alloc.c
++++ b/binder/binder_alloc.c
+@@ -1026,7 +1026,9 @@ enum lru_status binder_alloc_free_page(struct list_head *item,
+ 	if (vma) {
+ 		trace_binder_unmap_user_start(alloc, index);
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
++#if defined(BINDER_HAVE_ZAP_VMA_RANGE)
++		zap_vma_range(vma, page_addr, PAGE_SIZE);
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
+ 		zap_page_range_single(vma, page_addr, PAGE_SIZE, NULL);
+ #else
+ 		zap_page_range(vma, page_addr, PAGE_SIZE);
+diff --git a/binder/binderfs.c b/binder/binderfs.c
+index f7515e8..a455ce4 100644
+--- a/binder/binderfs.c
++++ b/binder/binderfs.c
+@@ -183,6 +183,21 @@ static int binderfs_binder_device_create(struct inode *ref_inode,
+ 	}
+ 
+ 	root = sb->s_root;
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0))
++	/*
++	 * 6.19 dropped kill_litter_super(): pinned dentries must be marked with
++	 * d_make_persistent() so kill_anon_super() can release them on unmount.
++	 */
++	dentry = simple_start_creating(root, name);
++	if (IS_ERR(dentry)) {
++		ret = PTR_ERR(dentry);
++		goto err;
++	}
++	inode->i_private = device;
++	d_make_persistent(dentry, inode);
++	fsnotify_create(root->d_inode, dentry);
++	simple_done_creating(dentry);
++#else
+ 	inode_lock(d_inode(root));
+ 
+ 	/* look it up */
+@@ -209,6 +224,7 @@ static int binderfs_binder_device_create(struct inode *ref_inode,
+ 	d_instantiate(dentry, inode);
+ 	fsnotify_create(root->d_inode, dentry);
+ 	inode_unlock(d_inode(root));
++#endif
+ 
+ 	return 0;
+ 
+@@ -486,7 +502,12 @@ static int binderfs_binder_ctl_create(struct super_block *sb)
+ 
+ 	inode->i_private = device;
+ 	info->control_dentry = dentry;
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0))
++	d_make_persistent(dentry, inode);
++	dput(dentry);
++#else
+ 	d_add(dentry, inode);
++#endif
+ 
+ 	return 0;
+ 
+@@ -522,6 +543,7 @@ static struct inode *binderfs_make_inode(struct super_block *sb, int mode)
+ 	return ret;
+ }
+ 
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0))
+ static struct dentry *binderfs_create_dentry(struct dentry *parent,
+ 					     const char *name)
+ {
+@@ -543,9 +565,14 @@ static struct dentry *binderfs_create_dentry(struct dentry *parent,
+ 
+ 	return dentry;
+ }
++#endif
+ 
+ void binderfs_remove_file(struct dentry *dentry)
+ {
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0))
++	/* Also drops the persistent reference taken in binderfs_create_file(). */
++	simple_recursive_removal(dentry, NULL);
++#else
+ 	struct inode *parent_inode;
+ 
+ 	parent_inode = d_inode(dentry->d_parent);
+@@ -557,6 +584,7 @@ void binderfs_remove_file(struct dentry *dentry)
+ 		dput(dentry);
+ 	}
+ 	inode_unlock(parent_inode);
++#endif
+ }
+ 
+ struct dentry *binderfs_create_file(struct dentry *parent, const char *name,
+@@ -568,6 +596,25 @@ struct dentry *binderfs_create_file(struct dentry *parent, const char *name,
+ 	struct super_block *sb;
+ 
+ 	parent_inode = d_inode(parent);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0))
++	dentry = simple_start_creating(parent, name);
++	if (IS_ERR(dentry))
++		return dentry;
++
++	sb = parent_inode->i_sb;
++	new_inode = binderfs_make_inode(sb, S_IFREG | 0444);
++	if (!new_inode) {
++		simple_done_creating(dentry);
++		return ERR_PTR(-ENOMEM);
++	}
++
++	new_inode->i_fop = fops;
++	new_inode->i_private = data;
++	d_make_persistent(dentry, new_inode);
++	fsnotify_create(parent_inode, dentry);
++	simple_done_creating(dentry);
++	return dentry; /* borrowed: the persistent reference keeps it alive */
++#else
+ 	inode_lock(parent_inode);
+ 
+ 	dentry = binderfs_create_dentry(parent, name);
+@@ -590,6 +637,7 @@ struct dentry *binderfs_create_file(struct dentry *parent, const char *name,
+ out:
+ 	inode_unlock(parent_inode);
+ 	return dentry;
++#endif
+ }
+ 
+ static struct dentry *binderfs_create_dir(struct dentry *parent,
+@@ -600,6 +648,28 @@ static struct dentry *binderfs_create_dir(struct dentry *parent,
+ 	struct super_block *sb;
+ 
+ 	parent_inode = d_inode(parent);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0))
++	dentry = simple_start_creating(parent, name);
++	if (IS_ERR(dentry))
++		return dentry;
++
++	sb = parent_inode->i_sb;
++	new_inode = binderfs_make_inode(sb, S_IFDIR | 0755);
++	if (!new_inode) {
++		simple_done_creating(dentry);
++		return ERR_PTR(-ENOMEM);
++	}
++
++	new_inode->i_fop = &simple_dir_operations;
++	new_inode->i_op = &simple_dir_inode_operations;
++
++	set_nlink(new_inode, 2);
++	d_make_persistent(dentry, new_inode);
++	inc_nlink(parent_inode);
++	fsnotify_mkdir(parent_inode, dentry);
++	simple_done_creating(dentry);
++	return dentry;
++#else
+ 	inode_lock(parent_inode);
+ 
+ 	dentry = binderfs_create_dentry(parent, name);
+@@ -625,6 +695,7 @@ static struct dentry *binderfs_create_dir(struct dentry *parent,
+ out:
+ 	inode_unlock(parent_inode);
+ 	return dentry;
++#endif
+ }
+ 
+ static int init_binder_logs(struct super_block *sb)
+diff --git a/binder/deps.c b/binder/deps.c
+index 63accc0..835ecf2 100644
+--- a/binder/deps.c
++++ b/binder/deps.c
+@@ -168,7 +168,14 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
+ 	return task_work_add_ptr(task, work, notify);
+ }
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
++#if defined(BINDER_HAVE_ZAP_VMA_RANGE)
++static void (*zap_vma_range_ptr)(struct vm_area_struct *, unsigned long, unsigned long) = NULL;
++
++void zap_vma_range(struct vm_area_struct *vma, unsigned long address, unsigned long size)
++{
++	zap_vma_range_ptr(vma, address, size);
++}
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
+ static void (*zap_page_range_single_ptr)(struct vm_area_struct *, unsigned long, unsigned long, struct zap_details *) = NULL;
+ 
+ void zap_page_range_single(struct vm_area_struct *vma, unsigned long address, unsigned long size, struct zap_details *details)
+@@ -205,3 +212,33 @@ struct ipc_namespace *get_init_ipc_ns_ptr(void)
+ 		init_ipc_ns_ptr = kallsyms_lookup_name_wrapper("init_ipc_ns");
+ 	return init_ipc_ns_ptr;
+ }
++
++/*
++ * The page-zap helper is only called from the shrinker under memory pressure,
++ * long after load. If the kernel renamed it, a lazy lookup would return 0 and
++ * the call would oops at a random moment. Resolve it at load time and refuse
++ * to load instead.
++ */
++int binder_deps_init(void)
++{
++#if defined(BINDER_HAVE_ZAP_VMA_RANGE)
++	zap_vma_range_ptr = (void *)kallsyms_lookup_name_wrapper("zap_vma_range");
++	if (!zap_vma_range_ptr) {
++		pr_err("binder_linux: kernel symbol zap_vma_range not found\n");
++		return -ENOENT;
++	}
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
++	zap_page_range_single_ptr = (void *)kallsyms_lookup_name_wrapper("zap_page_range_single");
++	if (!zap_page_range_single_ptr) {
++		pr_err("binder_linux: kernel symbol zap_page_range_single not found\n");
++		return -ENOENT;
++	}
++#else
++	zap_page_range_ptr = (void *)kallsyms_lookup_name_wrapper("zap_page_range");
++	if (!zap_page_range_ptr) {
++		pr_err("binder_linux: kernel symbol zap_page_range not found\n");
++		return -ENOENT;
++	}
++#endif
++	return 0;
++}
+diff --git a/binder/deps.h b/binder/deps.h
+index c75195c..33de546 100644
+--- a/binder/deps.h
++++ b/binder/deps.h
+@@ -3,5 +3,11 @@
+ #include <linux/ipc_namespace.h>
+ 
+ struct ipc_namespace* get_init_ipc_ns_ptr(void);
++#ifdef BINDER_HAVE_ZAP_VMA_RANGE
++void zap_vma_range(struct vm_area_struct *vma, unsigned long address,
++		   unsigned long size);
++#else
+ void zap_page_range_single(struct vm_area_struct *vma, unsigned long address,
+ 			    unsigned long size, struct zap_details *details);
++#endif
++int binder_deps_init(void);

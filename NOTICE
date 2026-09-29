@@ -25,6 +25,12 @@ Embedded or adapted in this repository
       Copyright (C) Universal Blue Organization (ublue-os/bazzite)
       Licensed under the Apache License, Version 2.0
 
+* Binder module patch — scripts/binder-anbox-7.2.patch. A patch against
+  choff/anbox-modules (binder/) for kernels 6.19+/7.x; its binderfs dentry
+  handling is adapted from Linux drivers/android/binderfs.c (6.19+).
+      Derived from GPL-2.0-only code (Linux kernel, choff/anbox-modules), so
+      this patch file is licensed under GPL-2.0-only, not GPL-3.0.
+
 * Game Mode cage launcher — scripts/waydroid-gamemode.sh. Reimplements the
   nested-compositor method also used by ryanrudolfoba/SteamOS-Waydroid-Installer
   (GPL-3.0) and Bazzite (Apache-2.0).
@@ -36,6 +42,10 @@ and covered by their own licenses)
 * Waydroid — GPL-3.0-or-later — https://github.com/waydroid/waydroid
 * casualsnek/waydroid_script — GPL-3.0 — cloned at install time to add
   libhoudini / libndk ARM translation
+* choff/anbox-modules — GPL-2.0-only — source downloaded at install time to
+  build the binder_linux kernel module (only when the kernel has no binder)
+* Valve linux-neptune-*-headers — GPL-2.0-only — downloaded at install time
+  from Valve's package repos to build that module
 * Nix — LGPL-2.1 ; nixpkgs, Home Manager — MIT
 * libhoudini (Intel) and libndk_translation (Google) — proprietary; downloaded
   at install time by waydroid_script, never redistributed in this repository

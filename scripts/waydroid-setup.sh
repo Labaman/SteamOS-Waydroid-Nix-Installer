@@ -10,6 +10,18 @@ SCRIPT_DIR="$HOME/waydroid_script"
 WAYDROID_CFG="/var/lib/waydroid/waydroid.cfg"
 IMG="$WAYDROID_DATA/images/system.img"
 
+# Binder: SteamOS kernels since 6.18 (e.g. stable 3.8.28, beta 3.9.x) are built without
+# binder (# CONFIG_ANDROID_BINDER_IPC is not set; 6.15/6.16 had it =y). We build
+# an out-of-tree module from anbox-modules (pinned commit + sha256) with our
+# patch for 6.19+/7.x and load it from root-owned /etc/waydroid-binder/<uname -r>/.
+KREL="$(uname -r)"
+BINDER_ETC_DIR="/etc/waydroid-binder"
+BINDER_KO="$BINDER_ETC_DIR/$KREL/binder_linux.ko"
+BINDER_STAMP="$BINDER_ETC_DIR/$KREL/source.stamp"
+BINDER_SRC_COMMIT="3f65f66a87b2323e56bd0d68993524d034d8b720"
+BINDER_SRC_SHA256="2701c1fbb5812a1a74481f71c60b733754a43a344e37440d82e0f2b782320599"
+BINDER_PATCH="$HOME/.local/share/waydroid-setup/binder-anbox-7.2.patch"
+
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
 skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }
 step() { printf '\n\033[1;34m══ %s ══\033[0m\n' "$*"; }
@@ -59,14 +71,138 @@ ensure_container_active() {
   done
 }
 
+# Is binder built into the kernel itself? The option is bool (never an in-tree
+# module); BINDERFS depends on BINDER_IPC, so checking it is enough.
+binder_builtin() {
+  zgrep -q '^CONFIG_ANDROID_BINDERFS=y' /proc/config.gz 2>/dev/null
+}
+
+# A binder_linux module installed on the system by something else (DKMS etc.).
+binder_system_module() {
+  modinfo -n binder_linux &>/dev/null
+}
+
+# Builds binder_linux.ko for the running kernel into directory $1 (no sudo).
+# Headers: the <kernel>-headers package of the same version from Valve's repos,
+# verified against the sha256 in the repo database. gcc of the same major
+# version as the kernel's (CONFIG_GCC_VERSION) comes from nixpkgs.
+build_binder_module() {
+  local out="$1" work kpkg kver hpkg mirror repo url desc file sum kdir gcc_major
+  command -v nix >/dev/null || die "nix not found in PATH — needed to build the binder module"
+  [[ -r "$BINDER_PATCH" ]] || die "patch $BINDER_PATCH missing — run: home-manager switch"
+
+  work="$(mktemp -d "${TMPDIR:-/tmp}/waydroid-binder-XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$work'; trap - RETURN" RETURN
+
+  read -r kpkg kver < <(pacman -Qo "/usr/lib/modules/$KREL" | awk '{print $(NF-1), $NF}')
+  [[ -n "$kpkg" && -n "$kver" ]] || die "could not determine the kernel package for $KREL"
+  hpkg="$kpkg-headers"
+  mirror="$(grep -m1 '^Server' /etc/pacman.d/mirrorlist | sed 's/^Server *= *//')"
+
+  for repo in $(grep -oE '^\[[^]]+\]' /etc/pacman.conf | tr -d '[]' | grep -vx options); do
+    url="${mirror//\$repo/$repo}"; url="${url//\$arch/x86_64}"
+    curl -fsSL -o "$work/$repo.db" "$url/$repo.db" || continue
+    desc="$(bsdtar -xOf "$work/$repo.db" "$hpkg-$kver/desc" 2>/dev/null)" || true
+    [[ -n "$desc" ]] && break
+  done
+  [[ -n "${desc:-}" ]] || die "package $hpkg-$kver not found in the repos from /etc/pacman.conf"
+  file="$(grep -A1 '^%FILENAME%$' <<<"$desc" | tail -1)"
+  sum="$(grep -A1 '^%SHA256SUM%$' <<<"$desc" | tail -1)"
+
+  ok "Downloading $file ($repo)"
+  curl -fsSL -o "$work/headers.pkg.tar.zst" "$url/$file"
+  echo "$sum  $work/headers.pkg.tar.zst" | sha256sum -c --quiet \
+    || die "headers sha256 does not match the $repo repo database"
+  mkdir "$work/hdr"
+  bsdtar -xf "$work/headers.pkg.tar.zst" -C "$work/hdr"
+  kdir="$work/hdr/usr/lib/modules/$KREL/build"
+  [[ -f "$kdir/.config" ]] || die "$file has no headers for $KREL"
+
+  curl -fsSL -o "$work/src.tar.gz" \
+    "https://github.com/choff/anbox-modules/archive/$BINDER_SRC_COMMIT.tar.gz"
+  echo "$BINDER_SRC_SHA256  $work/src.tar.gz" | sha256sum -c --quiet \
+    || die "anbox-modules source sha256 mismatch"
+  mkdir "$work/src"
+  tar xzf "$work/src.tar.gz" -C "$work/src" --strip-components=1
+  git -C "$work/src" apply -p1 "$BINDER_PATCH" \
+    || die "patch $BINDER_PATCH does not apply to anbox-modules $BINDER_SRC_COMMIT"
+
+  gcc_major="$(sed -n 's/^CONFIG_GCC_VERSION=\([0-9]*\)[0-9]\{4\}$/\1/p' "$kdir/.config")"
+  [[ -n "$gcc_major" ]] || die "could not read the kernel's gcc version from $kdir/.config"
+  ok "Building binder_linux (gcc$gcc_major from nixpkgs)"
+  nix shell "nixpkgs#gcc$gcc_major" nixpkgs#gnumake nixpkgs#binutils nixpkgs#elfutils nixpkgs#pahole \
+    -c make -C "$kdir" M="$work/src/binder" modules >"$work/build.log" 2>&1 \
+    || { tail -20 "$work/build.log" >&2; die "binder_linux build failed"; }
+
+  # vermagic starts with the kernel release — otherwise insmod refuses it.
+  [[ "$(modinfo -F vermagic "$work/src/binder/binder_linux.ko" | awk '{print $1}')" == "$KREL" ]] \
+    || die "built binder_linux.ko does not match kernel $KREL (vermagic)"
+  cp "$work/src/binder/binder_linux.ko" "$out/binder_linux.ko"
+}
+
 # ── 1. Check dependencies ─────────────────────────────────────────────────
-step "1/7  Check dependencies"
+step "1/8  Check dependencies"
 [[ -x "$WAYDROID_BIN" ]]       || die "waydroid not found — run: home-manager switch"
 [[ -x "$NIX_BIN/lxc-start" ]] || die "lxc not found — run: home-manager switch"
 ok "waydroid and lxc found"
 
-# ── 2. /etc files ─────────────────────────────────────────────────────────
-step "2/7  /etc configs (systemd, D-Bus, gbinder)"
+# ── 2. Binder ─────────────────────────────────────────────────────────────
+# The mode decides how the container unit loads binder at start (ExecStartPre):
+#   builtin — built into the kernel: nothing to build or load;
+#   system  — a binder_linux module is already on the system: modprobe;
+#   ours    — build our own for `uname -r`, insmod from /etc/waydroid-binder/%v/.
+# %v in systemd = running kernel release: after a kernel update the unit fails on
+# the missing .ko with a clear error — fixed by re-running this script.
+step "2/8  Binder (kernel $KREL)"
+if binder_builtin; then
+  BINDER_MODE=builtin
+  skip "binder is built into the kernel — no module needed"
+elif binder_system_module; then
+  BINDER_MODE=system
+  skip "binder_linux module already on the system ($(modinfo -n binder_linux)) — no build needed"
+else
+  BINDER_MODE=ours
+  # Rebuild only if there is no module for this kernel from the same source and patch.
+  stamp="commit=$BINDER_SRC_COMMIT patch=$(sha256sum "$BINDER_PATCH" 2>/dev/null | cut -d' ' -f1)"
+  if [[ -f "$BINDER_KO" ]] && [[ "$(cat "$BINDER_STAMP" 2>/dev/null)" == "$stamp" ]]; then
+    skip "$BINDER_KO built from the same source"
+  else
+    build_dir="$(mktemp -d "${TMPDIR:-/tmp}/waydroid-binder-out-XXXXXX")"
+    build_binder_module "$build_dir"
+    write_file "$BINDER_KO" 644 < "$build_dir/binder_linux.ko" || true
+    printf '%s\n' "$stamp" | write_file "$BINDER_STAMP" 644 || true
+    rm -rf "$build_dir"
+    # A loaded module can't be swapped live (no rmmod while the container has
+    # binderfs mounted) — the new build is picked up on the next boot.
+    if grep -qw binder /proc/filesystems; then
+      printf '\033[33m→\033[0m binder_linux already loaded — the new build takes effect after reboot\n'
+    fi
+  fi
+  # Modules for previous kernels are no longer needed (one kernel per slot).
+  sudo find "$BINDER_ETC_DIR" -mindepth 1 -maxdepth 1 -type d ! -name "$KREL" \
+    -exec rm -rf {} + -exec printf '\033[32m✓\033[0m Removed module for old kernel: %s\n' {} \;
+fi
+
+if grep -qw binder /proc/filesystems; then
+  skip "binderfs available in the kernel"
+else
+  case "$BINDER_MODE" in
+    system) sudo modprobe binder_linux ;;
+    ours)   sudo insmod "$BINDER_KO" ;;
+  esac
+  grep -qw binder /proc/filesystems || die "binderfs unavailable after loading the module — check: sudo dmesg | tail"
+  ok "binder_linux module loaded"
+fi
+
+case "$BINDER_MODE" in
+  builtin) BINDER_EXEC_START_PRE="" ;;
+  system)  BINDER_EXEC_START_PRE="ExecStartPre=/usr/bin/modprobe binder_linux" ;;
+  ours)    BINDER_EXEC_START_PRE="ExecStartPre=/bin/sh -c 'grep -qw binder /proc/filesystems || exec /usr/bin/insmod $BINDER_ETC_DIR/%v/binder_linux.ko'" ;;
+esac
+
+# ── 3. /etc files ─────────────────────────────────────────────────────────
+step "3/8  /etc configs (systemd, D-Bus, gbinder)"
 
 # SteamOS atomic updates (RAUC) wipe /etc except the keep-list: base
 # /usr/lib/rauc/atomic-update-keep.conf + user /etc/atomic-update.conf.d/*.conf.
@@ -83,6 +219,7 @@ write_file /etc/atomic-update.conf.d/waydroid.conf <<'KEEPLIST' || true
 /etc/waydroid-fix-controllers
 /etc/sudoers.d/zz-waydroid-fix-controllers
 /etc/firewalld/zones/trusted.xml
+/etc/waydroid-binder/**
 KEEPLIST
 
 RELOAD_SYSTEMD=false
@@ -97,6 +234,7 @@ After=network.target dbus.service
 Type=dbus
 BusName=id.waydro.Container
 Environment=PATH=$NIX_BIN:/usr/bin:/bin
+$BINDER_EXEC_START_PRE
 ExecStart=$WAYDROID_BIN container start
 Restart=on-failure
 RestartSec=5
@@ -152,8 +290,8 @@ if { $RELOAD_SYSTEMD || $RELOAD_DBUS || $RELOAD_GBINDER; } && systemctl is-activ
   ok "waydroid-container.service restarted (picking up new config)"
 fi
 
-# ── 3. Android data: directory + symlink ──────────────────────────────────
-step "3/7  Data directory and /var/lib/waydroid symlink"
+# ── 4. Android data: directory + symlink ──────────────────────────────────
+step "4/8  Data directory and /var/lib/waydroid symlink"
 mkdir -p "$WAYDROID_DATA"
 
 if [[ "$(readlink /var/lib/waydroid 2>/dev/null)" == "$WAYDROID_DATA" ]]; then
@@ -164,12 +302,12 @@ else
   ok "Symlink /var/lib/waydroid → $WAYDROID_DATA"
 fi
 
-# ── 4. waydroid init ──────────────────────────────────────────────────────
+# ── 5. waydroid init ──────────────────────────────────────────────────────
 # Init is done only when BOTH images exist. If the vendor download was interrupted
 # (SourceForge resets connections), only system.img and a cfg with
 # vendor_datetime = 0 are left — Waydroid then reports "not initialized", and a
 # plain `init` on an existing cfg won't fetch the rest, hence -f.
-step "4/7  waydroid init (Android 13 + GAPPS, ~3 GB)"
+step "5/8  waydroid init (Android 13 + GAPPS, ~3 GB)"
 if [[ -f "$WAYDROID_DATA/images/system.img" && -f "$WAYDROID_DATA/images/vendor.img" ]]; then
   skip "Android images already downloaded"
 else
@@ -326,8 +464,8 @@ else
   fi
 fi
 
-# ── 5. firewalld ──────────────────────────────────────────────────────────
-step "5/7  firewalld (internet for Android)"
+# ── 6. firewalld ──────────────────────────────────────────────────────────
+step "6/8  firewalld (internet for Android)"
 sudo systemctl enable --now firewalld
 
 fwadd_iface() {
@@ -362,8 +500,8 @@ fwadd_masq  trusted
 sudo firewall-cmd --reload
 ok "firewall-cmd --reload"
 
-# ── 6. Enable service ─────────────────────────────────────────────────────
-step "6/7  systemctl enable waydroid-container"
+# ── 7. Enable service ─────────────────────────────────────────────────────
+step "7/8  systemctl enable waydroid-container"
 if systemctl is-enabled --quiet waydroid-container.service 2>/dev/null; then
   skip "waydroid-container.service already enabled"
 else
@@ -400,10 +538,10 @@ else
   skip "fix-controllers: /etc/waydroid-fix-controllers + sudoers (zz-...)"
 fi
 
-# ── 7. libhoudini (ARM translation) ──────────────────────────────────────
-step "7/7  libhoudini — ARM translation"
+# ── 8. libhoudini (ARM translation) ──────────────────────────────────────
+step "8/8  libhoudini — ARM translation"
 
-# mount_overlays was synced in step 4/7 — install_app() branches on the same
+# mount_overlays was synced in step 5/8 — install_app() branches on the same
 # flag, so check the real file in the same place it would write it, not
 # ro.dalvik.vm.native.bridge (waydroid init sets that regardless of whether
 # libhoudini.so was actually copied in).
