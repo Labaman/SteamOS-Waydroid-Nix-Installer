@@ -54,7 +54,7 @@ index 45c2c56..ca9d272 100644
  #else
  		zap_page_range(vma, page_addr, PAGE_SIZE);
 diff --git a/binder/binderfs.c b/binder/binderfs.c
-index f7515e8..a455ce4 100644
+index f7515e8..dd92b5c 100644
 --- a/binder/binderfs.c
 +++ b/binder/binderfs.c
 @@ -183,6 +183,21 @@ static int binderfs_binder_device_create(struct inode *ref_inode,
@@ -202,6 +202,20 @@ index f7515e8..a455ce4 100644
  }
  
  static int init_binder_logs(struct super_block *sb)
+@@ -819,7 +890,13 @@ static struct file_system_type binder_fs_type = {
+ 	.name			= "binder",
+ 	.init_fs_context	= binderfs_init_fs_context,
+ 	.parameters		= binderfs_fs_parameters,
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,19,0))
+ 	.kill_sb		= kill_anon_super,
++#else
++	/* Before 6.19 dentries are pinned via d_instantiate(); only
++	 * kill_litter_super() drops those references on unmount. */
++	.kill_sb		= kill_litter_super,
++#endif
+ 	.fs_flags		= FS_USERNS_MOUNT,
+ };
+ 
 diff --git a/binder/deps.c b/binder/deps.c
 index 63accc0..835ecf2 100644
 --- a/binder/deps.c

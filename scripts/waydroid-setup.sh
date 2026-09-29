@@ -13,14 +13,14 @@ IMG="$WAYDROID_DATA/images/system.img"
 # Binder: SteamOS kernels since 6.18 (e.g. stable 3.8.28, beta 3.9.x) are built without
 # binder (# CONFIG_ANDROID_BINDER_IPC is not set; 6.15/6.16 had it =y). We build
 # an out-of-tree module from anbox-modules (pinned commit + sha256) with our
-# patch for 6.19+/7.x and load it from root-owned /etc/waydroid-binder/<uname -r>/.
+# patch for kernels 6.18+ and load it from root-owned /etc/waydroid-binder/<uname -r>/.
 KREL="$(uname -r)"
 BINDER_ETC_DIR="/etc/waydroid-binder"
 BINDER_KO="$BINDER_ETC_DIR/$KREL/binder_linux.ko"
 BINDER_STAMP="$BINDER_ETC_DIR/$KREL/source.stamp"
 BINDER_SRC_COMMIT="3f65f66a87b2323e56bd0d68993524d034d8b720"
 BINDER_SRC_SHA256="2701c1fbb5812a1a74481f71c60b733754a43a344e37440d82e0f2b782320599"
-BINDER_PATCH="$HOME/.local/share/waydroid-setup/binder-anbox-7.2.patch"
+BINDER_PATCH="$HOME/.local/share/waydroid-setup/anbox-modules-binder.patch"
 
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
 skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }

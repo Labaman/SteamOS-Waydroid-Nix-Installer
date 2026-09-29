@@ -203,9 +203,9 @@ in
     executable = true;
     source = ./scripts/waydroid-setup.sh;
   };
-  # anbox-modules compatibility with kernels 6.19+/7.x (zap_vma_range, binderfs dentries).
-  home.file.".local/share/waydroid-setup/binder-anbox-7.2.patch".source =
-    ./scripts/binder-anbox-7.2.patch;
+  # anbox-modules compatibility with kernels 6.18+ (binderfs unmount, zap_vma_range, binderfs dentries).
+  home.file.".local/share/waydroid-setup/anbox-modules-binder.patch".source =
+    ./scripts/anbox-modules-binder.patch;
 
   # Game Mode launcher — add to Steam as a non-Steam game:
   #   Games → Add a Non-Steam Game → Browse → ~/.local/bin/waydroid-gamemode

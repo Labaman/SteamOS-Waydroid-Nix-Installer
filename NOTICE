@@ -25,8 +25,8 @@ Embedded or adapted in this repository
       Copyright (C) Universal Blue Organization (ublue-os/bazzite)
       Licensed under the Apache License, Version 2.0
 
-* Binder module patch — scripts/binder-anbox-7.2.patch. A patch against
-  choff/anbox-modules (binder/) for kernels 6.19+/7.x; its binderfs dentry
+* Binder module patch — scripts/anbox-modules-binder.patch. A patch against
+  choff/anbox-modules (binder/) for kernels 6.18+; its binderfs dentry
   handling is adapted from Linux drivers/android/binderfs.c (6.19+).
       Derived from GPL-2.0-only code (Linux kernel, choff/anbox-modules), so
       this patch file is licensed under GPL-2.0-only, not GPL-3.0.
