@@ -2,6 +2,16 @@
 
 **English** | [Русский](README.ru.md)
 
+> [!WARNING]
+> ⚠️ **Attention!** Starting with SteamOS 3.8.28 (the linux-neptune-618 kernel), SteamOS
+> ships without the Android binder driver (`CONFIG_ANDROID_BINDER_IPC` is disabled),
+> which Waydroid needs. This installer builds binder as an out-of-tree module for the
+> running kernel so Waydroid works today — but the proper fix is for Valve to re-enable
+> binder in the SteamOS kernel.
+>
+> 👉 Please upvote / subscribe to the issue:
+> [ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848).
+
 Installs [Waydroid](https://waydro.id) (Android 13 + GAPPS) on SteamOS via Nix + Home Manager.
 
 Does everything [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) does — base SteamOS fixes, GPU drivers for Nix GUI apps, shell prompt, native Wayland for Nix GUI apps (Electron/Chromium + Qt) — plus installs Android in an LXC container with a Game Mode launcher and gamepad support.
