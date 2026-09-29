@@ -16,7 +16,7 @@
 | Waydroid | Android 13 + GAPPS в LXC-контейнере |
 | Лаунчер для Game Mode | `waydroid-gamemode` — добавить в Steam как стороннюю игру |
 | Поддержка геймпада | Правый стик корректно маппируется для Android-игр |
-| Модуль binder | Ядра SteamOS начиная с 6.18 собраны без binder — `waydroid-setup` собирает `binder_linux` под текущее ядро ([anbox-modules](https://github.com/choff/anbox-modules) + патч); пропускается, если binder встроен в ядро |
+| Модуль binder | Ядра SteamOS начиная с 6.18 собраны без binder — `waydroid-setup` собирает штатный in-tree binder под текущее ядро (исходники с kernel.org + небольшая прослойка через kallsyms, без патчей драйвера); пропускается, если binder встроен в ядро |
 | ARM-трансляция | libhoudini через [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 
 ## Требования
@@ -73,7 +73,7 @@ waydroid-setup
 - [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — подход с cage-лаунчером для Game Mode и udev/uevent пропсы из `waydroid_base.prop`
 - [Bazzite](https://github.com/ublue-os/bazzite) — паттерн uevent-ретриггера для поддержки геймпада
 - [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — установщик libhoudini (ARM-трансляция)
-- [choff/anbox-modules](https://github.com/choff/anbox-modules) — внешний модуль ядра binder (GPL-2.0)
+- Linux kernel `drivers/android` — GPL-2.0 — штатный in-tree binder; исходники берутся при сборке с kernel.org под версию текущего ядра
 - The Android Open Source Project — раскладка правого стика (Apache-2.0)
 
 ## Лицензия

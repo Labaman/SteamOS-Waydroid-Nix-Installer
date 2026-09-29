@@ -25,11 +25,12 @@ Embedded or adapted in this repository
       Copyright (C) Universal Blue Organization (ublue-os/bazzite)
       Licensed under the Apache License, Version 2.0
 
-* Binder module patch — scripts/anbox-modules-binder.patch. A patch against
-  choff/anbox-modules (binder/) for kernels 6.18+; its binderfs dentry
-  handling is adapted from Linux drivers/android/binderfs.c (6.19+).
-      Derived from GPL-2.0-only code (Linux kernel, choff/anbox-modules), so
-      this patch file is licensed under GPL-2.0-only, not GPL-3.0.
+* Binder build shim — scripts/binder-shim.c and scripts/binder-shim.h. Original
+  glue that builds the kernel's own in-tree binder as an out-of-tree module: it
+  resolves symbols the driver uses but the kernel does not export (via kallsyms)
+  and redirects init_ipc_ns. The driver sources themselves are not modified.
+      Loaded into the kernel and declares MODULE_LICENSE("GPL"), so it is
+      licensed under GPL-2.0-only, not GPL-3.0.
 
 * Game Mode cage launcher — scripts/waydroid-gamemode.sh. Reimplements the
   nested-compositor method also used by ryanrudolfoba/SteamOS-Waydroid-Installer
@@ -42,8 +43,10 @@ and covered by their own licenses)
 * Waydroid — GPL-3.0-or-later — https://github.com/waydroid/waydroid
 * casualsnek/waydroid_script — GPL-3.0 — cloned at install time to add
   libhoudini / libndk ARM translation
-* choff/anbox-modules — GPL-2.0-only — source downloaded at install time to
-  build the binder_linux kernel module (only when the kernel has no binder)
+* Linux kernel drivers/android (in-tree binder) — GPL-2.0-only — source
+  downloaded at install time from the stable tree on kernel.org, at the tag
+  matching the running kernel, to build the binder_linux module (only when the
+  kernel has no binder)
 * Valve linux-neptune-*-headers — GPL-2.0-only — downloaded at install time
   from Valve's package repos to build that module
 * Nix — LGPL-2.1 ; nixpkgs, Home Manager — MIT

@@ -16,7 +16,7 @@ Packages and settings survive SteamOS updates.
 | Waydroid | Android 13 + GAPPS in an LXC container |
 | Game Mode launcher | `waydroid-gamemode` — add to Steam as a non-Steam game |
 | Gamepad support | Right stick mapped correctly for Android games |
-| Binder module | SteamOS kernels since 6.18 ship without binder — `waydroid-setup` builds `binder_linux` for the running kernel ([anbox-modules](https://github.com/choff/anbox-modules) + patch); skipped if the kernel has binder built in |
+| Binder module | SteamOS kernels since 6.18 ship without binder — `waydroid-setup` builds the kernel's own in-tree binder for the running kernel (sources from kernel.org + a small kallsyms shim, no driver patches); skipped if the kernel has binder built in |
 | ARM translation | libhoudini via [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 
 ## Requirements
@@ -73,7 +73,7 @@ See [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for a 
 - [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — Game Mode cage launcher approach and `waydroid_base.prop` udev/uevent props
 - [Bazzite](https://github.com/ublue-os/bazzite) — uevent retrigger pattern for gamepad support
 - [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — libhoudini ARM translation installer
-- [choff/anbox-modules](https://github.com/choff/anbox-modules) — out-of-tree binder kernel module (GPL-2.0)
+- Linux kernel `drivers/android` — GPL-2.0 — in-tree binder; sources fetched at build time from kernel.org for the running kernel version
 - The Android Open Source Project — the right-stick key layout (Apache-2.0)
 
 ## License

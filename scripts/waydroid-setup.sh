@@ -10,17 +10,19 @@ SCRIPT_DIR="$HOME/waydroid_script"
 WAYDROID_CFG="/var/lib/waydroid/waydroid.cfg"
 IMG="$WAYDROID_DATA/images/system.img"
 
-# Binder: SteamOS kernels since 6.18 (e.g. stable 3.8.28, beta 3.9.x) are built without
-# binder (# CONFIG_ANDROID_BINDER_IPC is not set; 6.15/6.16 had it =y). We build
-# an out-of-tree module from anbox-modules (pinned commit + sha256) with our
-# patch for kernels 6.18+ and load it from root-owned /etc/waydroid-binder/<uname -r>/.
+# Binder: SteamOS kernels since 6.18 (e.g. stable 3.8.28, beta 3.9.x) are built
+# without binder (# CONFIG_ANDROID_BINDER_IPC is not set; 6.15/6.16 had it =y).
+# We build the kernel's OWN in-tree binder from the upstream sources of the EXACT
+# version of the running kernel (e.g. 7.2.7 -> tag v7.2.7 of the stable tree on
+# kernel.org), with a small shim (shim.c: symbols resolved via kallsyms) and no
+# edits to the driver itself. Loaded from root-owned /etc/waydroid-binder/<uname -r>/.
 KREL="$(uname -r)"
+KVER="${KREL%%-*}"                                   # 7.2.7-valve1-1-... -> 7.2.7
+case "$KVER" in *.0) BINDER_SRC_TAG="v${KVER%.0}" ;; *) BINDER_SRC_TAG="v$KVER" ;; esac
 BINDER_ETC_DIR="/etc/waydroid-binder"
 BINDER_KO="$BINDER_ETC_DIR/$KREL/binder_linux.ko"
 BINDER_STAMP="$BINDER_ETC_DIR/$KREL/source.stamp"
-BINDER_SRC_COMMIT="3f65f66a87b2323e56bd0d68993524d034d8b720"
-BINDER_SRC_SHA256="2701c1fbb5812a1a74481f71c60b733754a43a344e37440d82e0f2b782320599"
-BINDER_PATCH="$HOME/.local/share/waydroid-setup/anbox-modules-binder.patch"
+BINDER_SHIM_DIR="$HOME/.local/share/waydroid-setup"  # shim.c + shim.h (from home.nix)
 
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
 skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }
@@ -83,13 +85,15 @@ binder_system_module() {
 }
 
 # Builds binder_linux.ko for the running kernel into directory $1 (no sudo).
-# Headers: the <kernel>-headers package of the same version from Valve's repos,
-# verified against the sha256 in the repo database. gcc of the same major
-# version as the kernel's (CONFIG_GCC_VERSION) comes from nixpkgs.
+# Headers: the <kernel>-headers package of the same version from Valve's repos
+# (sha256 from the repo database). Driver sources: drivers/android of the same
+# kernel from the stable tree on kernel.org. gcc of the kernel's major version
+# (CONFIG_GCC_VERSION) comes from nixpkgs.
 build_binder_module() {
   local out="$1" work kpkg kver hpkg mirror repo url desc file sum kdir gcc_major
   command -v nix >/dev/null || die "nix not found in PATH — needed to build the binder module"
-  [[ -r "$BINDER_PATCH" ]] || die "patch $BINDER_PATCH missing — run: home-manager switch"
+  [[ -r "$BINDER_SHIM_DIR/shim.c" && -r "$BINDER_SHIM_DIR/shim.h" ]] \
+    || die "shim.c/shim.h missing in $BINDER_SHIM_DIR — run: home-manager switch"
 
   work="$(mktemp -d "${TMPDIR:-/tmp}/waydroid-binder-XXXXXX")"
   # shellcheck disable=SC2064
@@ -110,35 +114,71 @@ build_binder_module() {
   file="$(grep -A1 '^%FILENAME%$' <<<"$desc" | tail -1)"
   sum="$(grep -A1 '^%SHA256SUM%$' <<<"$desc" | tail -1)"
 
-  ok "Downloading $file ($repo)"
-  curl -fsSL -o "$work/headers.pkg.tar.zst" "$url/$file"
-  echo "$sum  $work/headers.pkg.tar.zst" | sha256sum -c --quiet \
-    || die "headers sha256 does not match the $repo repo database"
+  # Header cache: keyed by package name (version-specific), content verified
+  # against the sha256 from the repo database. wget -c resumes if the (sometimes
+  # slow) Valve CDN drops, so repeated builds don't re-download the same package.
+  local cache="$HOME/.cache/waydroid-setup"; mkdir -p "$cache"
+  if [[ -f "$cache/$file" ]] && echo "$sum  $cache/$file" | sha256sum -c --quiet 2>/dev/null; then
+    ok "Headers from cache: $file"
+  else
+    ok "Downloading $file ($repo)"
+    wget -q -c --tries=50 --waitretry=3 --retry-connrefused --read-timeout=20 --timeout=30 \
+      -O "$cache/$file" "$url/$file" || die "failed to download headers $file"
+    echo "$sum  $cache/$file" | sha256sum -c --quiet \
+      || { rm -f "$cache/$file"; die "headers sha256 does not match the $repo repo database"; }
+  fi
   mkdir "$work/hdr"
-  bsdtar -xf "$work/headers.pkg.tar.zst" -C "$work/hdr"
+  bsdtar -xf "$cache/$file" -C "$work/hdr"
   kdir="$work/hdr/usr/lib/modules/$KREL/build"
   [[ -f "$kdir/.config" ]] || die "$file has no headers for $KREL"
 
-  curl -fsSL -o "$work/src.tar.gz" \
-    "https://github.com/choff/anbox-modules/archive/$BINDER_SRC_COMMIT.tar.gz"
-  echo "$BINDER_SRC_SHA256  $work/src.tar.gz" | sha256sum -c --quiet \
-    || die "anbox-modules source sha256 mismatch"
+  # Driver sources: drivers/android of the SAME kernel from the stable tree on
+  # kernel.org (plain endpoint, no auth): Makefile -> objects -> .c -> recursively
+  # the local "..." headers. This picks up the file set for any version.
+  local base="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/plain/drivers/android"
+  local objs need done_f f inc kobjs
   mkdir "$work/src"
-  tar xzf "$work/src.tar.gz" -C "$work/src" --strip-components=1
-  git -C "$work/src" apply -p1 "$BINDER_PATCH" \
-    || die "patch $BINDER_PATCH does not apply to anbox-modules $BINDER_SRC_COMMIT"
+  fetch_src() { curl -fsSL "$base/$1?h=$BINDER_SRC_TAG" -o "$work/src/$1"; }
+  ok "Downloading drivers/android ($BINDER_SRC_TAG) from kernel.org"
+  fetch_src Makefile || die "failed to download drivers/android/Makefile for $BINDER_SRC_TAG"
+  objs="$(grep -E '^obj-\$\(CONFIG_ANDROID_BINDER(FS|_IPC)\)' "$work/src/Makefile" \
+          | sed 's/.*+=[[:space:]]*//' | tr ' \t' '\n\n' | grep '\.o$' || true)"
+  [[ -n "$objs" ]] || die "could not parse binder objects from Makefile $BINDER_SRC_TAG"
+  need="$(sed 's/\.o$/.c/' <<<"$objs")"; done_f=""
+  while [[ -n "$need" ]]; do
+    f="$(head -1 <<<"$need")"; need="$(tail -n +2 <<<"$need")"
+    case " $done_f " in *" $f "*) continue ;; esac
+    done_f="$done_f $f"
+    fetch_src "$f" || die "failed to download drivers/android/$f ($BINDER_SRC_TAG)"
+    for inc in $(grep -oE '#include[[:space:]]*"[^"]+"' "$work/src/$f" | sed -E 's/.*"([^"]+)".*/\1/'); do
+      case "$inc" in */*) ;; *) need="$need"$'\n'"$inc" ;; esac
+    done
+  done
+
+  # Our glue: shim + a generated Kbuild (the driver itself is unmodified).
+  cp "$BINDER_SHIM_DIR/shim.c" "$BINDER_SHIM_DIR/shim.h" "$work/src/"
+  rm -f "$work/src/Makefile"                        # build with our own Kbuild
+  kobjs="$(tr '\n' ' ' <<<"$objs")"
+  cat > "$work/src/Kbuild" <<KBUILD
+ccflags-y += -I\$(src) -include \$(src)/shim.h \\
+	-DCONFIG_ANDROID_BINDER_IPC=1 -DCONFIG_ANDROID_BINDERFS=1 -DCONFIG_ANDROID_BINDER_DEVICES='"binder"'
+CFLAGS_binder.o += -Dinit_module=binder_orig_init_module -D__inittest=binder_orig_inittest
+CFLAGS_binder_alloc.o += -Ddebug_mask=alloc_debug_mask
+obj-m := binder_linux.o
+binder_linux-y := ${kobjs}shim.o
+KBUILD
 
   gcc_major="$(sed -n 's/^CONFIG_GCC_VERSION=\([0-9]*\)[0-9]\{4\}$/\1/p' "$kdir/.config")"
   [[ -n "$gcc_major" ]] || die "could not read the kernel's gcc version from $kdir/.config"
   ok "Building binder_linux (gcc$gcc_major from nixpkgs)"
   nix shell "nixpkgs#gcc$gcc_major" nixpkgs#gnumake nixpkgs#binutils nixpkgs#elfutils nixpkgs#pahole \
-    -c make -C "$kdir" M="$work/src/binder" modules >"$work/build.log" 2>&1 \
-    || { tail -20 "$work/build.log" >&2; die "binder_linux build failed"; }
+    -c make -C "$kdir" M="$work/src" modules >"$work/build.log" 2>&1 \
+    || { tail -30 "$work/build.log" >&2; die "binder_linux build failed (if modpost says 'undefined!' — add the symbols to shim.c)"; }
 
   # vermagic starts with the kernel release — otherwise insmod refuses it.
-  [[ "$(modinfo -F vermagic "$work/src/binder/binder_linux.ko" | awk '{print $1}')" == "$KREL" ]] \
+  [[ "$(modinfo -F vermagic "$work/src/binder_linux.ko" | awk '{print $1}')" == "$KREL" ]] \
     || die "built binder_linux.ko does not match kernel $KREL (vermagic)"
-  cp "$work/src/binder/binder_linux.ko" "$out/binder_linux.ko"
+  cp "$work/src/binder_linux.ko" "$out/binder_linux.ko"
 }
 
 # ── 1. Check dependencies ─────────────────────────────────────────────────
@@ -163,8 +203,8 @@ elif binder_system_module; then
   skip "binder_linux module already on the system ($(modinfo -n binder_linux)) — no build needed"
 else
   BINDER_MODE=ours
-  # Rebuild only if there is no module for this kernel from the same source and patch.
-  stamp="commit=$BINDER_SRC_COMMIT patch=$(sha256sum "$BINDER_PATCH" 2>/dev/null | cut -d' ' -f1)"
+  # Rebuild only if there is no module for this kernel from the same source.
+  stamp="tag=$BINDER_SRC_TAG shim=$(sha256sum "$BINDER_SHIM_DIR/shim.c" 2>/dev/null | cut -d' ' -f1)"
   if [[ -f "$BINDER_KO" ]] && [[ "$(cat "$BINDER_STAMP" 2>/dev/null)" == "$stamp" ]]; then
     skip "$BINDER_KO built from the same source"
   else
