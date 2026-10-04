@@ -549,17 +549,25 @@ else
   ok "waydroid-container.service enabled"
 fi
 
-# Gamepad: uevent retrigger (Bazzite pattern).
-# udev=true/uevent=true props enable forwarding, but Android may miss the controller —
-# the "add" event arrived before forwarding started. Writing "add" to sysfs manually
-# makes the kernel resend the udev event → Android registers the device.
-# Script and sudoers in /etc/ → overlay → /var → survive SteamOS updates.
+# Gamepads: Android only picks up devices plugged in after the session starts, so resend
+# "add" uevents for connected ones. No argument: Steam Input virtual pads (Game Mode);
+# "physical": USB/Bluetooth gamepads (Desktop Mode).
+# Script and sudoers live in /etc and survive SteamOS updates.
 #
 # if, not `|| true` — need the real status for the honest report below.
 FIXCTL_CHANGED=false
 if write_file /etc/waydroid-fix-controllers 755 <<'FIXSCRIPT'
 #!/bin/bash
-echo add | tee /sys/devices/virtual/input/input*/event*/uevent >/dev/null 2>&1 || true
+if [ "$1" = physical ]; then
+  for js in /sys/class/input/js*; do
+    d=$(readlink -f "$js/device")
+    case "$d" in /sys/devices/virtual/input/*) continue ;; esac
+    for e in "$d"/event*/uevent; do echo add > "$e"; done
+  done 2>/dev/null
+else
+  echo add | tee /sys/devices/virtual/input/input*/event*/uevent >/dev/null 2>&1
+fi
+exit 0
 FIXSCRIPT
 then FIXCTL_CHANGED=true; fi
 

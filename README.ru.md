@@ -25,7 +25,7 @@
 | Базовые фиксы SteamOS | Подробнее: [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) |
 | Waydroid | Android 13 + GAPPS в LXC-контейнере |
 | Лаунчер для Game Mode | `waydroid-gamemode` — добавить в Steam как стороннюю игру |
-| Поддержка геймпада | Правый стик корректно маппируется для Android-игр |
+| Поддержка геймпада | Правый стик корректно маппируется для Android-игр; геймпады, подключённые до запуска сессии, подхватываются автоматически (Game Mode и Desktop Mode) |
 | Модуль binder | Ядра SteamOS начиная с 6.18 собраны без binder — `waydroid-setup` собирает штатный in-tree binder под текущее ядро (исходники с kernel.org + небольшая прослойка через kallsyms, без патчей драйвера); пропускается, если binder встроен в ядро |
 | ARM-трансляция | libhoudini через [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 

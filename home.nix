@@ -215,6 +215,26 @@ in
     source = ./scripts/waydroid-gamemode.sh;
   };
 
+  # Desktop Mode: register gamepads connected before the session started
+  # (Waydroid rewrites waydroid.prop on session start; Game Mode is handled by waydroid-gamemode).
+  systemd.user.paths.waydroid-gamepads = {
+    Unit.Description = "Waydroid: watch for session start";
+    Path.PathChanged = "/var/lib/waydroid/waydroid.prop";
+    Install.WantedBy = [ "default.target" ];
+  };
+  systemd.user.services.waydroid-gamepads = {
+    Unit.Description = "Waydroid: register gamepads in Android (Desktop Mode)";
+    Service = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.writeShellScript "waydroid-gamepads" ''
+        /usr/bin/systemctl --user --quiet is-active gamescope-session.service && exit 0
+        for _ in $(seq 1 60); do /usr/bin/pgrep -x surfaceflinger >/dev/null && break; sleep 1; done
+        sleep 5
+        /usr/bin/sudo -n /etc/waydroid-fix-controllers physical || true
+      ''}";
+    };
+  };
+
   # Let Home Manager install and manage itself.
   programs.home-manager.enable = true;
 

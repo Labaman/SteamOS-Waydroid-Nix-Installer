@@ -25,7 +25,7 @@ Packages and settings survive SteamOS updates.
 | Base SteamOS fixes | See [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for details |
 | Waydroid | Android 13 + GAPPS in an LXC container |
 | Game Mode launcher | `waydroid-gamemode` — add to Steam as a non-Steam game |
-| Gamepad support | Right stick mapped correctly for Android games |
+| Gamepad support | Right stick mapped correctly for Android games; gamepads connected before the session starts are picked up automatically (Game Mode and Desktop Mode) |
 | Binder module | SteamOS kernels since 6.18 ship without binder — `waydroid-setup` builds the kernel's own in-tree binder for the running kernel (sources from kernel.org + a small kallsyms shim, no driver patches); skipped if the kernel has binder built in |
 | ARM translation | libhoudini via [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 
