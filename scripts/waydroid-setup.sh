@@ -83,7 +83,9 @@ build_binder_module() {
   # shellcheck disable=SC2064
   trap "rm -rf '$work'; trap - RETURN" RETURN
 
-  read -r kpkg kver < <(pacman -Qo "/usr/lib/modules/$KREL" | awk '{print $(NF-1), $NF}')
+  # -Qoq/-Q print untranslated names; parsing the -Qo sentence breaks in other locales.
+  kpkg="$(pacman -Qoq "/usr/lib/modules/$KREL" 2>/dev/null)" || true
+  kver="$(pacman -Q "$kpkg" 2>/dev/null | awk '{print $2}')" || true
   [[ -n "$kpkg" && -n "$kver" ]] || die "could not determine the kernel package for $KREL"
   hpkg="$kpkg-headers"
   mirror="$(grep -m1 '^Server' /etc/pacman.d/mirrorlist | sed 's/^Server *= *//')"
