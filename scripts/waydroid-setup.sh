@@ -10,12 +10,9 @@ SCRIPT_DIR="$HOME/waydroid_script"
 WAYDROID_CFG="/var/lib/waydroid/waydroid.cfg"
 IMG="$WAYDROID_DATA/images/system.img"
 
-# Binder: SteamOS kernels since 6.18 (e.g. stable 3.8.28, beta 3.9.x) are built
-# without binder (# CONFIG_ANDROID_BINDER_IPC is not set; 6.15/6.16 had it =y).
-# We build the kernel's OWN in-tree binder from the upstream sources of the EXACT
-# version of the running kernel (e.g. 7.2.7 -> tag v7.2.7 of the stable tree on
-# kernel.org), with a small shim (shim.c: symbols resolved via kallsyms) and no
-# edits to the driver itself. Loaded from root-owned /etc/waydroid-binder/<uname -r>/.
+# Binder: SteamOS kernels since 6.18 have no binder. Build the in-tree driver from the
+# kernel.org sources of the running kernel version (+ shim.c) and load it from
+# /etc/waydroid-binder/<uname -r>/.
 KREL="$(uname -r)"
 KVER="${KREL%%-*}"                                   # 7.2.7-valve1-1-... -> 7.2.7
 case "$KVER" in *.0) BINDER_SRC_TAG="v${KVER%.0}" ;; *) BINDER_SRC_TAG="v$KVER" ;; esac
@@ -29,10 +26,7 @@ skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }
 step() { printf '\n\033[1;34m══ %s ══\033[0m\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Writes a file (to /etc or Waydroid's data dir) only if content/mode changed.
-# mode is a parameter, not hardcoded 644: some callers chmod afterward (+x,
-# 440 for sudoers), and comparing against 644 made those look "different"
-# forever, rewriting them on every run.
+# Writes a file only if content or mode changed (mode is a parameter).
 write_file() {
   local dest="$1" mode="${2:-644}"
   local tmp; tmp=$(mktemp)
@@ -46,10 +40,7 @@ write_file() {
   ok "Written $dest"
 }
 
-# waydroid.log shows the real error: ext4's casefold feature flag (whole
-# filesystem, not a per-dir chattr +F) blocks overlay mounts. Checked via
-# tune2fs on whatever device backs Waydroid's data, every run — so the script
-# adapts automatically if that ever changes.
+# casefold on the Waydroid data filesystem breaks overlay mounts; checked on every run.
 overlayfs_supported() {
   local dev features
   dev="$(findmnt -n -o SOURCE --target "$WAYDROID_DATA" 2>/dev/null)" || return 1
@@ -57,11 +48,7 @@ overlayfs_supported() {
   ! grep -qw casefold <<<"$features"
 }
 
-# Waits until waydroid-container.service actually comes up. The unit is
-# Type=dbus — is-active only becomes true once the process has acquired its
-# BusName, so this is a genuine readiness check, not just "the process hasn't
-# crashed yet". Fails clearly with a helpful pointer instead of silently
-# continuing with a broken service.
+# Waits for waydroid-container.service (Type=dbus) to acquire its bus name.
 ensure_container_active() {
   local tries=0
   until systemctl is-active --quiet waydroid-container.service; do
@@ -84,11 +71,8 @@ binder_system_module() {
   modinfo -n binder_linux &>/dev/null
 }
 
-# Builds binder_linux.ko for the running kernel into directory $1 (no sudo).
-# Headers: the <kernel>-headers package of the same version from Valve's repos
-# (sha256 from the repo database). Driver sources: drivers/android of the same
-# kernel from the stable tree on kernel.org. gcc of the kernel's major version
-# (CONFIG_GCC_VERSION) comes from nixpkgs.
+# Builds binder_linux.ko for the running kernel into $1: Valve headers (sha256 from the
+# repo db), drivers/android of the same version from kernel.org, gcc from nixpkgs.
 build_binder_module() {
   local out="$1" work kpkg kver hpkg mirror repo url desc file sum kdir gcc_major
   command -v nix >/dev/null || die "nix not found in PATH — needed to build the binder module"
@@ -114,9 +98,7 @@ build_binder_module() {
   file="$(grep -A1 '^%FILENAME%$' <<<"$desc" | tail -1)"
   sum="$(grep -A1 '^%SHA256SUM%$' <<<"$desc" | tail -1)"
 
-  # Header cache: keyed by package name (version-specific), content verified
-  # against the sha256 from the repo database. wget -c resumes if the (sometimes
-  # slow) Valve CDN drops, so repeated builds don't re-download the same package.
+  # Header cache; wget -c resumes interrupted downloads.
   local cache="$HOME/.cache/waydroid-setup"; mkdir -p "$cache"
   if [[ -f "$cache/$file" ]] && echo "$sum  $cache/$file" | sha256sum -c --quiet 2>/dev/null; then
     ok "Headers from cache: $file"
@@ -132,9 +114,7 @@ build_binder_module() {
   kdir="$work/hdr/usr/lib/modules/$KREL/build"
   [[ -f "$kdir/.config" ]] || die "$file has no headers for $KREL"
 
-  # Driver sources: drivers/android of the SAME kernel from the stable tree on
-  # kernel.org (plain endpoint, no auth): Makefile -> objects -> .c -> recursively
-  # the local "..." headers. This picks up the file set for any version.
+  # drivers/android of the same kernel: Makefile -> objects -> .c -> local headers.
   local base="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/plain/drivers/android"
   local objs need done_f f inc kobjs
   mkdir "$work/src"
@@ -159,11 +139,17 @@ build_binder_module() {
   cp "$BINDER_SHIM_DIR/shim.c" "$BINDER_SHIM_DIR/shim.h" "$work/src/"
   rm -f "$work/src/Makefile"                        # build with our own Kbuild
   kobjs="$(tr '\n' ' ' <<<"$objs")"
+  # Kernel differences handled in shim.c: zap_vma_range (7.x) vs zap_page_range_single
+  # (6.18); list_lru_add is not exported on 6.18.
+  local shimdefs=""
+  grep -qE '\bzap_vma_range\(' "$kdir/include/linux/mm.h" && shimdefs+=" -DBINDER_HAVE_ZAP_VMA_RANGE"
+  grep -qw list_lru_add "$kdir/Module.symvers" || shimdefs+=" -DBINDER_SHIM_LIST_LRU_ADD"
   cat > "$work/src/Kbuild" <<KBUILD
 ccflags-y += -I\$(src) -include \$(src)/shim.h \\
 	-DCONFIG_ANDROID_BINDER_IPC=1 -DCONFIG_ANDROID_BINDERFS=1 -DCONFIG_ANDROID_BINDER_DEVICES='"binder"'
 CFLAGS_binder.o += -Dinit_module=binder_orig_init_module -D__inittest=binder_orig_inittest
 CFLAGS_binder_alloc.o += -Ddebug_mask=alloc_debug_mask
+CFLAGS_shim.o += ${shimdefs}
 obj-m := binder_linux.o
 binder_linux-y := ${kobjs}shim.o
 KBUILD
@@ -171,8 +157,9 @@ KBUILD
   gcc_major="$(sed -n 's/^CONFIG_GCC_VERSION=\([0-9]*\)[0-9]\{4\}$/\1/p' "$kdir/.config")"
   [[ -n "$gcc_major" ]] || die "could not read the kernel's gcc version from $kdir/.config"
   ok "Building binder_linux (gcc$gcc_major from nixpkgs)"
+  # Built without BTF: not needed for binder, and it would tie loading to the pahole version.
   nix shell "nixpkgs#gcc$gcc_major" nixpkgs#gnumake nixpkgs#binutils nixpkgs#elfutils nixpkgs#pahole \
-    -c make -C "$kdir" M="$work/src" modules >"$work/build.log" 2>&1 \
+    -c make -C "$kdir" M="$work/src" CONFIG_DEBUG_INFO_BTF_MODULES= modules >"$work/build.log" 2>&1 \
     || { tail -30 "$work/build.log" >&2; die "binder_linux build failed (if modpost says 'undefined!' — add the symbols to shim.c)"; }
 
   # vermagic starts with the kernel release — otherwise insmod refuses it.
@@ -188,12 +175,8 @@ step "1/8  Check dependencies"
 ok "waydroid and lxc found"
 
 # ── 2. Binder ─────────────────────────────────────────────────────────────
-# The mode decides how the container unit loads binder at start (ExecStartPre):
-#   builtin — built into the kernel: nothing to build or load;
-#   system  — a binder_linux module is already on the system: modprobe;
-#   ours    — build our own for `uname -r`, insmod from /etc/waydroid-binder/%v/.
-# %v in systemd = running kernel release: after a kernel update the unit fails on
-# the missing .ko with a clear error — fixed by re-running this script.
+# Mode: builtin (nothing to do), system (modprobe), ours (build; insmod from
+# /etc/waydroid-binder/%v/). After a kernel update re-run this script.
 step "2/8  Binder (kernel $KREL)"
 if binder_builtin; then
   BINDER_MODE=builtin
@@ -244,13 +227,7 @@ esac
 # ── 3. /etc files ─────────────────────────────────────────────────────────
 step "3/8  /etc configs (systemd, D-Bus, gbinder)"
 
-# SteamOS atomic updates (RAUC) wipe /etc except the keep-list: base
-# /usr/lib/rauc/atomic-update-keep.conf + user /etc/atomic-update.conf.d/*.conf.
-# The base list already covers /etc/systemd/system/*.service and *.wants/**
-# (our unit + its enable symlink survive), but NOT dbus/gbinder/sudoers/firewalld
-# — without listing them Waydroid breaks after every update ("AccessDenied:
-# Request to own name refused by policy"). The drop-in matches the keep-list
-# itself, so it's self-sustaining.
+# RAUC wipes /etc outside its keep-list; list the Waydroid files so they survive updates.
 write_file /etc/atomic-update.conf.d/waydroid.conf <<'KEEPLIST' || true
 # Waydroid files RAUC would otherwise wipe on a SteamOS atomic update.
 # The systemd unit + enable symlink aren't needed here — the base keep-list covers them.
@@ -317,13 +294,8 @@ then RELOAD_GBINDER=true; fi
 $RELOAD_SYSTEMD && { sudo systemctl daemon-reload; ok "daemon-reload"; }
 $RELOAD_DBUS    && { sudo systemctl reload dbus.service; ok "D-Bus reloaded"; }
 
-# systemd/dbus configs apply live (daemon-reload / reload are wired to
-# SIGHUP+notify-reload, no restart needed). But the container process itself
-# only reads gbinder.conf and the BusName policy at its OWN startup — if it was
-# already running (e.g. after a previous install and a host reboot), it won't
-# see the new config without a restart. Restart once if any of the three
-# changed AND the container is already active; if nothing changed, move on
-# quietly. A host reboot is never required for any of these files.
+# Restart the container once if gbinder/dbus/systemd config changed while it was running
+# (it reads them only at startup).
 if { $RELOAD_SYSTEMD || $RELOAD_DBUS || $RELOAD_GBINDER; } && systemctl is-active --quiet waydroid-container.service; then
   sudo systemctl restart waydroid-container.service
   ensure_container_active
@@ -343,10 +315,7 @@ else
 fi
 
 # ── 5. waydroid init ──────────────────────────────────────────────────────
-# Init is done only when BOTH images exist. If the vendor download was interrupted
-# (SourceForge resets connections), only system.img and a cfg with
-# vendor_datetime = 0 are left — Waydroid then reports "not initialized", and a
-# plain `init` on an existing cfg won't fetch the rest, hence -f.
+# Init needs both images; if the vendor download was interrupted, re-run with -f.
 step "5/8  waydroid init (Android 13 + GAPPS, ~3 GB)"
 if [[ -f "$WAYDROID_DATA/images/system.img" && -f "$WAYDROID_DATA/images/vendor.img" ]]; then
   skip "Android images already downloaded"
@@ -370,14 +339,9 @@ else
   skip "$WAYDROID_DATA owner already correct"
 fi
 
-# Gamepad: Android only detects input devices (including gamepads) when Waydroid
-# forwards udev/uevent events to the container — enabled by these props.
-# Source: ryanrudolfoba/extras/waydroid_base.prop. Applied on session start.
-#
-# Written to both: waydroid_base.prop for immediate effect, and waydroid.cfg's
-# [properties] section because `waydroid upgrade` (runs internally after every
-# libhoudini install) fully rewrites base.prop from cfg[properties] alone — a
-# prop only appended to the file gets silently wiped on the next install.
+# Gamepad: props that forward udev/uevent to the container (source:
+# ryanrudolfoba/extras/waydroid_base.prop). Also written to waydroid.cfg [properties],
+# which `waydroid upgrade` uses to rebuild base.prop.
 for prop in persist.waydroid.udev=true persist.waydroid.uevent=true; do
   key="${prop%%=*}"
 
@@ -414,10 +378,8 @@ else
   fi
 fi
 
-# Right stick: Steam creates a virtual gamepad vendor=0x28de product=0x11ff (Valve).
-# Android looks for Vendor_28de_Product_11ff.kl — not found → falls back to Generic.kl,
-# which maps ABS_RX→AXIS_RX, ABS_RY→AXIS_RY. Most games expect the right stick on
-# AXIS_Z/AXIS_RZ (like a real Xbox 360, Vendor_045e_Product_028e.kl).
+# Right stick: map the Steam virtual gamepad (28de:11ff) like an Xbox 360 pad
+# (the default Generic.kl uses the wrong axes).
 KL_PATH="system/usr/keylayout/Vendor_28de_Product_11ff.kl"
 # Content mirrors Vendor_045e_Product_028e.kl (Xbox 360).
 # ABS_RX(0x03)→Z, ABS_RY(0x04)→RZ — what Android games expect from the right stick.
@@ -448,22 +410,10 @@ if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
   # not upperdir) — no resize2fs/loop-mount/debugfs, survives `waydroid upgrade`.
   printf '%s\n' "$KL_CONTENT" | write_file "$WAYDROID_DATA/overlay/$KL_PATH" 644
 else
-  # Overlay not supported — write kl directly into system.img.
-  # Already-done check: debugfs reads the ext4 image directly without mounting and
-  # without stopping the container — system.img is mounted inside the lxc
-  # namespace and isn't accessible via the host rootfs. Checks not just whether
-  # the file exists, but its SIZE too: if a previous run failed with "no space
-  # left" right after creating the file but before writing its content, a
-  # zero-size stub file would remain — "Type: regular" matches that too, and
-  # without the Size check the script would forever consider this already done.
+  # Overlay is unsupported: write the kl into system.img. debugfs checks for it
+  # (existence and size) without mounting.
   KL_STAT="$(debugfs -R "stat /$KL_PATH" "$IMG" 2>/dev/null)"
-  # head -1: debugfs prints "Size:" twice — once for the real file size
-  # (User/Group/Project/Size line), and again on the "Fragment: ... Size: 0"
-  # line (a legacy ext2 field, always 0). Without head -1 both values got
-  # concatenated via newline → "392\n0" → arithmetic error in the comparison
-  # below. || true: on a truly fresh image the path doesn't exist at all (not
-  # a zero-size stub) → KL_STAT is empty → grep finds no "Size:" → exit 1 →
-  # set -e silently kills the script right here, with no error printed at all.
+  # head -1: debugfs prints Size twice; || true: the file may not exist yet.
   KL_SIZE="$(grep -oE 'Size: [0-9]+' <<<"$KL_STAT" | head -1 | grep -oE '[0-9]+')" || true
   if grep -q "Type: regular" <<<"$KL_STAT" && [[ "${KL_SIZE:-0}" -gt 0 ]]; then
     skip "$KL_PATH"
@@ -474,11 +424,7 @@ else
       sudo systemctl stop waydroid-container.service && sleep 2
     fi
 
-    # Different LineageOS builds ship with different amounts of free space inside
-    # system.img — sometimes it's zero (that's exactly what happened on a fresh
-    # reinstall: 2.5G/2.5G, 100%, 0 free blocks). Don't rely on luck for any
-    # particular build: count free blocks ahead of time and grow the image
-    # idempotently BEFORE attempting the write, instead of reacting to a failed tee.
+    # Grow system.img beforehand if it has no free blocks.
     FREE_KB="$(dumpe2fs -h "$IMG" 2>/dev/null | awk -F: '
       /Free blocks/ { gsub(/ /,"",$2); free=$2 }
       /Block size/  { gsub(/ /,"",$2); bs=$2 }
@@ -552,9 +498,6 @@ fi
 # Gamepads: Android only picks up devices plugged in after the session starts, so resend
 # "add" uevents for connected ones. No argument: Steam Input virtual pads (Game Mode);
 # "physical": USB/Bluetooth gamepads (Desktop Mode).
-# Script and sudoers live in /etc and survive SteamOS updates.
-#
-# if, not `|| true` — need the real status for the honest report below.
 FIXCTL_CHANGED=false
 if write_file /etc/waydroid-fix-controllers 755 <<'FIXSCRIPT'
 #!/bin/bash
@@ -571,9 +514,7 @@ exit 0
 FIXSCRIPT
 then FIXCTL_CHANGED=true; fi
 
-# IMPORTANT: the filename must sort after wheel/wheel-prepare-oobe-test alphabetically —
-# otherwise %wheel ALL=(ALL) ALL overrides our NOPASSWD (last rule wins).
-# zz-... is guaranteed to be last among all SteamOS sudoers.d files.
+# Must sort after wheel* in sudoers.d (last rule wins).
 sudo rm -f /etc/sudoers.d/waydroid-fix-controllers 2>/dev/null || true
 if write_file /etc/sudoers.d/zz-waydroid-fix-controllers 440 <<SUDOERS
 deck ALL=(ALL) NOPASSWD: /etc/waydroid-fix-controllers
@@ -589,10 +530,7 @@ fi
 # ── 8. libhoudini (ARM translation) ──────────────────────────────────────
 step "8/8  libhoudini — ARM translation"
 
-# mount_overlays was synced in step 5/8 — install_app() branches on the same
-# flag, so check the real file in the same place it would write it, not
-# ro.dalvik.vm.native.bridge (waydroid init sets that regardless of whether
-# libhoudini.so was actually copied in).
+# Check the real file: ro.dalvik.vm.native.bridge is set even if libhoudini.so is missing.
 houdini_installed() {
   if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
     [[ -s "$WAYDROID_DATA/overlay/system/lib64/libhoudini.so" ]]
@@ -623,11 +561,8 @@ else
   fi
 
   CONTAINER_PY="$SCRIPT_DIR/tools/container.py"
-  # Check the exact patched line — upstream's own upgrade() already contains
-  # an unrelated ignore=r"...", so a loose substring check always false-
-  # positives as "patched". The patch itself isn't optional: `waydroid
-  # container stop` always writes to stderr, and their run() raises on any
-  # non-empty stderr regardless of exit code.
+  # Check the exact patched line (upstream upgrade() has a similar ignore=r"...");
+  # the patch is required: `container stop` writes to stderr and run() raises on it.
   PATCHED_STOP='run(["waydroid", "container", "stop"], ignore=r"\[.*\] Stopping container")'
   if grep -qF "$PATCHED_STOP" "$CONTAINER_PY" 2>/dev/null; then
     skip "container.py patch already applied"
@@ -650,9 +585,7 @@ PYEOF
     ok "container.py patch applied"
   fi
 
-  # Don't pre-start the service: install_app() manages container stop/start
-  # itself. Starting it first breaks their internal mount() — verified live,
-  # libhoudini.so silently fails to land when the service is already active.
+  # Don't pre-start the service: install_app() manages container stop/start itself.
   sudo PATH="$NIX_BIN:$PATH" "$SCRIPT_DIR/venv/bin/python3" "$SCRIPT_DIR/main.py" install libhoudini
 
   # "installation finished" doesn't mean it actually landed — verify on disk.
@@ -661,9 +594,7 @@ PYEOF
 fi
 
 # ── Final check ────────────────────────────────────────────────────────────
-# Unconditional restart rather than "start only if inactive" — guarantees the
-# LXC container and system.img/vendor.img mounts are fresh with every fix
-# above applied, instead of relying on each step's own restore logic.
+# Always restart so the container and image mounts are fresh.
 sudo systemctl restart waydroid-container.service
 ensure_container_active
 ok "waydroid-container.service restarted — all fixes guaranteed to be applied"

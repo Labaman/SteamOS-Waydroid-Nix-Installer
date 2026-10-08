@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * waydroid-setup: shim for building the kernel's own in-tree binder out of tree.
- * It resolves the symbols the driver uses but this kernel does not export to
- * modules — via kallsyms/kprobe (the same trick as anbox's deps.c) — and
- * redirects init_ipc_ns. The driver sources themselves are not modified. If a
- * future kernel needs a different set, the build fails at modpost with an
- * "undefined!" list; add the symbols here.
- *
- * Deployed by home.nix to ~/.local/share/waydroid-setup/shim.c (+ shim.h).
+ * Shim for building the in-tree binder out of tree: resolves symbols the kernel does not
+ * export to modules via kallsyms. Deployed by home.nix as shim.c/shim.h.
  */
 #include <linux/module.h>
 #include <linux/kprobes.h>
@@ -33,6 +27,11 @@ struct ipc_namespace *binder_shim_init_ipc_ns;
 SHIM(int, can_nice, (const struct task_struct *p, const int nice), (p, nice))
 SHIM(bool, list_lru_del, (struct list_lru *lru, struct list_head *item, int nid,
 			  struct mem_cgroup *memcg), (lru, item, nid, memcg))
+/* Not exported on 6.18; the define is set by waydroid-setup from Module.symvers. */
+#ifdef BINDER_SHIM_LIST_LRU_ADD
+SHIM(bool, list_lru_add, (struct list_lru *lru, struct list_head *item, int nid,
+			  struct mem_cgroup *memcg), (lru, item, nid, memcg))
+#endif
 SHIM(struct vm_area_struct *, lock_vma_under_rcu,
      (struct mm_struct *mm, unsigned long address), (mm, address))
 SHIM(void, put_ipc_ns, (struct ipc_namespace *ns), (ns))
@@ -48,8 +47,16 @@ SHIM(struct file *, file_close_fd, (unsigned int fd), (fd))
 SHIM(int, task_work_add, (struct task_struct *task, struct callback_head *twork,
 			  enum task_work_notify_mode mode), (task, twork, mode))
 SHIM(void, __wake_up_pollfree, (struct wait_queue_head *wq_head), (wq_head))
+/* zap_vma_range on 7.x kernels, zap_page_range_single before (6.18).
+ * The define is set by waydroid-setup from the kernel headers. */
+#ifdef BINDER_HAVE_ZAP_VMA_RANGE
 SHIM(void, zap_vma_range, (struct vm_area_struct *vma, unsigned long address,
 			   unsigned long size), (vma, address, size))
+#else
+SHIM(void, zap_page_range_single, (struct vm_area_struct *vma, unsigned long address,
+				   unsigned long size, struct zap_details *details),
+     (vma, address, size, details))
+#endif
 
 static int __init binder_shim_init(void)
 {
@@ -73,6 +80,9 @@ static int __init binder_shim_init(void)
 	RESOLVE(binder_shim_init_ipc_ns, "init_ipc_ns");
 	RESOLVE(p_can_nice, "can_nice");
 	RESOLVE(p_list_lru_del, "list_lru_del");
+#ifdef BINDER_SHIM_LIST_LRU_ADD
+	RESOLVE(p_list_lru_add, "list_lru_add");
+#endif
 	RESOLVE(p_lock_vma_under_rcu, "lock_vma_under_rcu");
 	RESOLVE(p_put_ipc_ns, "put_ipc_ns");
 	RESOLVE(p_security_binder_transaction, "security_binder_transaction");
@@ -82,7 +92,11 @@ static int __init binder_shim_init(void)
 	RESOLVE(p_file_close_fd, "file_close_fd");
 	RESOLVE(p_task_work_add, "task_work_add");
 	RESOLVE(p___wake_up_pollfree, "__wake_up_pollfree");
+#ifdef BINDER_HAVE_ZAP_VMA_RANGE
 	RESOLVE(p_zap_vma_range, "zap_vma_range");
+#else
+	RESOLVE(p_zap_page_range_single, "zap_page_range_single");
+#endif
 	return 0;
 }
 
