@@ -24,7 +24,7 @@ Packages and settings survive SteamOS updates.
 |---------|-------|
 | Base SteamOS fixes | See [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for details |
 | Waydroid | Android 13 + GAPPS in an LXC container |
-| Game Mode launcher | `waydroid-gamemode` — add to Steam as a non-Steam game |
+| Game Mode launcher | `waydroid-gamemode` lets you add Waydroid to Steam as a non-Steam game |
 | Gamepad support | Right stick mapped correctly for Android games; gamepads connected before the session starts are picked up automatically (Game Mode and Desktop Mode) |
 | Binder module | SteamOS kernels since 6.18 ship without binder — `waydroid-setup` builds the kernel's own in-tree binder for the running kernel (sources from kernel.org + a small kallsyms shim, no driver patches); skipped if the kernel has binder built in |
 | ARM translation | libhoudini via [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
@@ -51,7 +51,7 @@ nix run home-manager/master -- switch
 
 The first run takes Home Manager straight from GitHub via `nix run` — no separate install needed. After that the `home-manager` command is in your profile, so later runs are just `home-manager switch`.
 
-If a file Home Manager wants to manage already exists (for example `~/.bashrc` when you enable bash), it is renamed to `<file>.hm-backup` instead of failing. If that backup already exists, `switch` stops: remove or rename the old backup and run it again.
+If a config file that Home Manager needs to manage already exists (for example, `~/.bashrc` when you enable bash), it gets renamed to `<file>.hm-backup`. If that backup already exists, `switch` stops: delete or rename the old backup and run it again.
 
 Then open a new terminal window: the current one was started before `switch`, so `~/.local/bin` (where `nix-gpu-setup` and `waydroid-setup` are installed) isn't in its `PATH` yet.
 
@@ -67,15 +67,19 @@ Then run the Waydroid setup script once (~3 GB download for the Android image):
 waydroid-setup
 ```
 
-Safe to re-run after SteamOS updates — already completed steps are skipped automatically. Re-run it after every SteamOS update that changes the kernel: it rebuilds the binder module for the new kernel, otherwise `waydroid-container.service` won't start.
+Re-run `waydroid-setup` after every SteamOS or Waydroid image update: steps that are already done are skipped, and anything the update overwrote is restored.
 
-Add your own packages and programs inside `home.nix`.
+Add your own packages and programs to `home.nix`, below the `# Add your own packages here` comment.
 
 ## Waydroid Game Mode
 
 After `waydroid-setup` completes, add Waydroid to Steam:
 
 **Desktop Mode** → Games → Add a Non-Steam Game → Browse → `~/.local/bin/waydroid-gamemode` → rename to "Waydroid"
+
+Then turn on native touchscreen support in the controller settings of the Waydroid shortcut:
+
+Edit Layout → Action Sets → Default → Add Always-On command → System → Touchscreen Native Support
 
 ## Shell
 
