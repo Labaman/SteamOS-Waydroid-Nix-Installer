@@ -104,6 +104,10 @@ in
   # Also required for waydroid-setup and waydroid-gamemode scripts below.
   home.sessionPath = [ "$HOME/.local/bin" ];
 
+  # genericLinux sets XCURSOR_PATH without the user theme dirs;
+  # KDE installs downloaded cursor themes to ~/.icons.
+  home.sessionSearchVariables.XCURSOR_PATH = lib.mkBefore [ "$HOME/.local/share/icons" "$HOME/.icons" ];
+
   # Starship prompt — shell-independent (same toml renders in bash, zsh, and fish).
   # Matches the default SteamOS 3.9 bash style 1:1 (__holo_ps1/__holo_prompt_command
   # in /etc/bash.bashrc): (rc)(user@host dir)$ — rc only on a non-zero exit code with
