@@ -67,20 +67,19 @@ in
       fi
     '';
 
-  # Native Wayland for Nix GUI apps (SteamOS 3.8+).
+  # Native Wayland for Electron/Chromium apps from nixpkgs.
+  # QT_QPA_PLATFORM is not set: Qt already picks wayland;xcb in a Wayland session.
   home.sessionVariables = {
     NIXOS_OZONE_WL = "1";
-    QT_QPA_PLATFORM = "wayland;xcb";
   };
 
-  # bash only: pushes Wayland vars to KDE-launched apps via plasma-workspace/env,
+  # bash only: pushes NIXOS_OZONE_WL to KDE-launched apps via plasma-workspace/env,
   # since bash misses the non-interactive non-login startup path. Inert for zsh/fish
   # (guarded by lib.mkIf) — may be removed when switching to zsh or fish.
   home.file.".config/plasma-workspace/env/nixos-ozone-wl.sh" =
     lib.mkIf config.programs.bash.enable {
       text = ''
         export NIXOS_OZONE_WL=1
-        export QT_QPA_PLATFORM="wayland;xcb"
       '';
     };
 
