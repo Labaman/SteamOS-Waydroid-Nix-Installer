@@ -51,7 +51,7 @@ nix run home-manager/master -- switch
 
 The first run takes Home Manager straight from GitHub via `nix run` — no separate install needed. After that the `home-manager` command is in your profile, so later runs are just `home-manager switch`.
 
-If a file Home Manager wants to manage already exists (for example `~/.bashrc` when you enable bash), it is renamed to `<file>.backup` instead of failing. If that backup already exists, `switch` stops: remove or rename the old backup and run it again.
+If a file Home Manager wants to manage already exists (for example `~/.bashrc` when you enable bash), it is renamed to `<file>.hm-backup` instead of failing. If that backup already exists, `switch` stops: remove or rename the old backup and run it again.
 
 Set up GPU drivers for Nix GUI apps (asks for the sudo password; re-run it when `switch` warns that GPU drivers require an update):
 
