@@ -19,6 +19,17 @@ in
   home.homeDirectory = "/home/deck";
   home.stateVersion = "26.05";
 
+  # If a file Home Manager wants to manage already exists (e.g. ~/.bashrc from /etc/skel
+  # when enabling programs.bash), rename it to <file>.backup instead of failing.
+  # Guarded: older Home Manager versions (an older local flake.lock) lack this option.
+  imports = [
+    ({ options, lib, ... }: {
+      config = lib.optionalAttrs (options.home ? backupFileExtension) {
+        home.backupFileExtension = "backup";
+      };
+    })
+  ];
+
   # Required on non-NixOS.
   targets.genericLinux.enable = true;
   xdg.enable = true;
