@@ -53,6 +53,8 @@ The first run takes Home Manager straight from GitHub via `nix run` — no separ
 
 If a file Home Manager wants to manage already exists (for example `~/.bashrc` when you enable bash), it is renamed to `<file>.hm-backup` instead of failing. If that backup already exists, `switch` stops: remove or rename the old backup and run it again.
 
+Then open a new terminal window: the current one was started before `switch`, so `~/.local/bin` (where `nix-gpu-setup` and `waydroid-setup` are installed) isn't in its `PATH` yet.
+
 Set up GPU drivers for Nix GUI apps (asks for the sudo password; re-run it when `switch` warns that GPU drivers require an update):
 
 ```bash
