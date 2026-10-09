@@ -33,8 +33,9 @@ in
     source = ./scripts/nix-gpu-setup.sh;
   };
 
-  # `nix shell nixpkgs#…` and `nix-shell -p` use the same nixpkgs as this config
-  # (not the latest channel snapshot), matching the GPU drivers above.
+  # `nix shell nixpkgs#…` and `nix-shell -p` use the same nixpkgs as this config:
+  # no channel re-downloads, and `nix-shell -p` works (the default NIX_PATH points
+  # to channels that don't exist).
   nix.registry.nixpkgs.flake = inputs.nixpkgs;
   nix.nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];
   nix.keepOldNixPath = false;
