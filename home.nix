@@ -94,11 +94,11 @@ in
       '';
     };
 
-  # ── Shell (required — uncomment ONE) ─────────────────────────────────────────
-  # See README for shell comparison, advantages of zsh/fish, and how to change the
-  # default login shell.
-  #
-  # programs.bash.enable = true;
+  # ── Shell ────────────────────────────────────────────────────────────────────
+  # bash (the SteamOS login shell) is enabled by default: it loads the session
+  # variables, ~/.local/bin and the prompt. To use zsh or fish instead, change the
+  # login shell first (chsh, see README), then uncomment its block.
+  programs.bash.enable = true;
   #
   # programs.zsh = {
   #   enable = true;
@@ -111,7 +111,7 @@ in
   # programs.fish.enable = true;
 
   # ~/.local/bin in PATH: pip, cargo, and official installers put binaries there.
-  # Also required for waydroid-setup and waydroid-gamemode scripts below.
+  # The scripts below (waydroid-setup, nix-gpu-setup, …) are installed there too.
   home.sessionPath = [ "$HOME/.local/bin" ];
 
   # genericLinux sets XCURSOR_PATH without the user theme dirs;
