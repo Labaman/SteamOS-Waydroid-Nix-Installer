@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, inputs, ... }:
 
 # Home Manager config for SteamOS (non-NixOS) with Waydroid.
 # Solves SteamOS-specific issues and installs Android via Waydroid in LXC.
@@ -32,6 +32,12 @@ in
     executable = true;
     source = ./scripts/nix-gpu-setup.sh;
   };
+
+  # `nix shell nixpkgs#…` and `nix-shell -p` use the same nixpkgs as this config
+  # (not the latest channel snapshot), matching the GPU drivers above.
+  nix.registry.nixpkgs.flake = inputs.nixpkgs;
+  nix.nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];
+  nix.keepOldNixPath = false;
 
   # Example: browser via the programs.chromium HM module.
   # The module generates a proper .desktop entry and handles XDG mime types.
