@@ -24,7 +24,7 @@
 |-------------|----------|
 | Базовые фиксы SteamOS | Подробнее: [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) |
 | Waydroid | Android 13 + GAPPS в LXC-контейнере |
-| Лаунчер для Game Mode | `waydroid-gamemode` — добавить в Steam как стороннюю игру |
+| Лаунчер для Game Mode | `waydroid-gamemode` — позволяет добавить Waydroid в Steam как стороннюю игру |
 | Поддержка геймпада | Правый стик корректно маппируется для Android-игр; геймпады, подключённые до запуска сессии, подхватываются автоматически (Game Mode и Desktop Mode) |
 | Модуль binder | Ядра SteamOS начиная с 6.18 собраны без binder — `waydroid-setup` собирает штатный in-tree binder под текущее ядро (исходники с kernel.org + небольшая прослойка через kallsyms, без патчей драйвера); пропускается, если binder встроен в ядро |
 | ARM-трансляция | libhoudini через [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
@@ -36,7 +36,7 @@
 
 ## Использование
 
-Установить Nix, если ещё не установлен ([NixOS/nix-installer](https://github.com/NixOS/nix-installer), автоматически определяет SteamOS):
+Установите Nix, если ещё не установлен ([NixOS/nix-installer](https://github.com/NixOS/nix-installer), автоматически определяет SteamOS):
 
 ```bash
 curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --enable-flakes
@@ -49,25 +49,25 @@ git clone https://github.com/Labaman/SteamOS-Waydroid-Nix-Installer ~/.config/ho
 nix run home-manager/master -- switch
 ```
 
-Первый запуск берёт Home Manager прямо с GitHub через `nix run` — отдельно ставить его не нужно. После этого команда `home-manager` уже есть в профиле, и дальше достаточно `home-manager switch`.
+Первый запуск берёт Home Manager прямо с GitHub через `nix run` — отдельно ставить его не нужно. После этого команда `home-manager` уже будет в профиле, и дальше достаточно запускать просто `home-manager switch`.
 
-Если файл, которым должен управлять Home Manager, уже существует (например, `~/.bashrc` при включении bash), он переименовывается в `<файл>.hm-backup` вместо ошибки. Если такая копия уже есть, `switch` остановится: удалите или переименуйте старую копию и запустите его снова.
+Если файл конфигурации, которым должен управлять Home Manager, уже существует (например, `~/.bashrc` при включении bash), он будет переименован в `<файл>.hm-backup`. Если такая копия уже есть, `switch` остановится: удалите или переименуйте старую копию и запустите его снова.
 
 Затем откройте новое окно терминала: текущее запущено до `switch`, поэтому в его `PATH` ещё нет `~/.local/bin`, куда установлены `nix-gpu-setup` и `waydroid-setup`.
 
-Настроить GPU-драйверы для Nix GUI-приложений (спросит пароль sudo; перезапускать, когда `switch` предупреждает, что драйверы требуют обновления):
+Настройте GPU-драйверы для Nix GUI-приложений (спросит пароль sudo; перезапускать, когда `switch` предупреждает, что драйверы требуют обновления):
 
 ```bash
 nix-gpu-setup
 ```
 
-Затем запустить скрипт установки Waydroid один раз (~3 ГБ для образа Android):
+Затем запустите скрипт установки Waydroid один раз (~3 ГБ для образа Android):
 
 ```bash
 waydroid-setup
 ```
 
-Безопасно перезапускать после обновления SteamOS — уже выполненные шаги пропускаются автоматически. Перезапускай его после каждого обновления SteamOS, которое меняет ядро: он пересоберёт модуль binder под новое ядро, иначе `waydroid-container.service` не запустится.
+`waydroid-setup` необходимо перезапускать после каждого обновления SteamOS или образа Waydroid — уже выполненные шаги пропускаются автоматически, а "затертые" изменнения будут восствновлены. 
 
 Свои пакеты и программы добавляй внутри `home.nix` ниже соответствующего комментария.
 
@@ -76,6 +76,8 @@ waydroid-setup
 После завершения `waydroid-setup` добавить Waydroid в Steam:
 
 **Desktop Mode** → Игры → Добавить игру не из Steam → Обзор → `~/.local/bin/waydroid-gamemode` → переименовать в «Waydroid»
+В настройках управлоения "игры" Waydroid включить следующие: 
+Изменить раскладку → Добавить слой → Постоянно включен →  Нативная поддержка сенсорного экрана
 
 ## Оболочка
 
