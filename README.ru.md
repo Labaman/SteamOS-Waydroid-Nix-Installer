@@ -75,10 +75,10 @@ waydroid-setup
 
 **Desktop Mode** → Игры → Добавить игру не из Steam → Обзор → `~/.local/bin/waydroid-gamemode` → переименовать в «Waydroid»
 
-## Оболочка (опционально)
+## Оболочка
 
-Раскомментируй один блок оболочки в `home.nix` (`bash`, `zsh` или `fish`), чтобы включить строку приглашения Starship и гарантировать попадание переменных сессии в графические приложения.
-Подробное сравнение оболочек и инструкции по смене логин-шелла — в [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
+bash (оболочка входа SteamOS) включён в `home.nix` по умолчанию. Он подключает переменные сессии и строку приглашения Starship, а также добавляет в `PATH` каталог `~/.local/bin`, куда устанавливаются `waydroid-setup` и другие скрипты. Существующие `~/.bashrc` и `~/.bash_profile` переименовываются в `*.hm-backup`.
+Чтобы использовать zsh или fish, нужно сменить логин-шелл — шаги и сравнение оболочек в [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
 
 ## Благодарности
 

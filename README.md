@@ -75,10 +75,10 @@ After `waydroid-setup` completes, add Waydroid to Steam:
 
 **Desktop Mode** → Games → Add a Non-Steam Game → Browse → `~/.local/bin/waydroid-gamemode` → rename to "Waydroid"
 
-## Shell (optional)
+## Shell
 
-Uncomment one shell block in `home.nix` (`bash`, `zsh`, or `fish`) to enable the Starship prompt and ensure session variables reach GUI apps.
-See [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for a full shell comparison and login-shell change instructions.
+bash (the SteamOS login shell) is enabled in `home.nix` by default. It loads the session variables and the Starship prompt and adds `~/.local/bin` to `PATH`, where `waydroid-setup` and the other scripts are installed. Your existing `~/.bashrc` and `~/.bash_profile` are renamed to `*.hm-backup`.
+To use zsh or fish instead, changing the login shell is required — see [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for the steps and a shell comparison.
 
 ## Credits
 
