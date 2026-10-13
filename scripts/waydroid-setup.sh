@@ -60,6 +60,23 @@ ensure_container_active() {
   done
 }
 
+# Files written by earlier versions of this script that are no longer needed.
+OBSOLETE_ETC_FILES=(
+  /etc/gbinder.d/waydroid.conf   # Waydroid passes the binder protocol to libgbinder itself
+)
+cleanup_obsolete() {
+  local f
+  for f in "${OBSOLETE_ETC_FILES[@]}"; do
+    if sudo test -e "$f"; then
+      sudo rm -f "$f"
+      ok "Removed obsolete $f"
+    fi
+  done
+  if [[ -d /etc/gbinder.d ]] && [[ -z "$(ls -A /etc/gbinder.d)" ]]; then
+    sudo rmdir /etc/gbinder.d && ok "Removed empty /etc/gbinder.d"
+  fi
+}
+
 # Is binder built into the kernel itself? The option is bool (never an in-tree
 # module); BINDERFS depends on BINDER_IPC, so checking it is enough.
 binder_builtin() {
@@ -227,14 +244,13 @@ case "$BINDER_MODE" in
 esac
 
 # ── 3. /etc files ─────────────────────────────────────────────────────────
-step "3/8  /etc configs (systemd, D-Bus, gbinder)"
+step "3/8  /etc configs (systemd, D-Bus)"
 
 # RAUC wipes /etc outside its keep-list; list the Waydroid files so they survive updates.
 write_file /etc/atomic-update.conf.d/waydroid.conf <<'KEEPLIST' || true
 # Waydroid files RAUC would otherwise wipe on a SteamOS atomic update.
 # The systemd unit + enable symlink aren't needed here — the base keep-list covers them.
 /etc/dbus-1/system.d/id.waydro.Container.conf
-/etc/gbinder.d/waydroid.conf
 /etc/waydroid-fix-controllers
 /etc/sudoers.d/zz-waydroid-fix-controllers
 /etc/firewalld/zones/trusted.xml
@@ -279,26 +295,14 @@ if write_file /etc/dbus-1/system.d/id.waydro.Container.conf <<DBUS
 DBUS
 then RELOAD_DBUS=true; fi
 
-RELOAD_GBINDER=false
-if write_file /etc/gbinder.d/waydroid.conf <<GBINDER
-[Protocol]
-/dev/anbox-binder = aidl2
-/dev/anbox-vndbinder = aidl2
-/dev/anbox-hwbinder = hidl
-
-[ServiceManager]
-/dev/anbox-binder = aidl2
-/dev/anbox-vndbinder = aidl2
-/dev/anbox-hwbinder = hidl
-GBINDER
-then RELOAD_GBINDER=true; fi
+cleanup_obsolete
 
 $RELOAD_SYSTEMD && { sudo systemctl daemon-reload; ok "daemon-reload"; }
 $RELOAD_DBUS    && { sudo systemctl reload dbus.service; ok "D-Bus reloaded"; }
 
-# Restart the container once if gbinder/dbus/systemd config changed while it was running
+# Restart the container once if dbus/systemd config changed while it was running
 # (it reads them only at startup).
-if { $RELOAD_SYSTEMD || $RELOAD_DBUS || $RELOAD_GBINDER; } && systemctl is-active --quiet waydroid-container.service; then
+if { $RELOAD_SYSTEMD || $RELOAD_DBUS; } && systemctl is-active --quiet waydroid-container.service; then
   sudo systemctl restart waydroid-container.service
   ensure_container_active
   ok "waydroid-container.service restarted (picking up new config)"

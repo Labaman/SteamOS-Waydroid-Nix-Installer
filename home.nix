@@ -193,7 +193,7 @@ in
   #
   # Safe to re-run after SteamOS updates — already completed steps are skipped automatically.
   # What Nix/HM covers:   packages below + scripts in ~/.local/bin/
-  # What the script does: /etc/systemd, /etc/dbus-1, /etc/gbinder.d, firewalld
+  # What the script does: /etc/systemd, /etc/dbus-1, firewalld
   #                       (require root; all survive SteamOS updates via /etc overlay)
   #                       + builds the binder_linux module into /etc/waydroid-binder/
   #                       when the kernel has no binder (SteamOS kernels 6.18+)
