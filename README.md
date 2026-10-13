@@ -88,7 +88,7 @@ To use zsh or fish instead, changing the login shell is required — see [nix-hm
 
 ## Credits
 
-- [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — Game Mode cage launcher approach and `waydroid_base.prop` udev/uevent props
+- SteamOS-Waydroid-Installer by [ryanrudolfoba](https://github.com/ryanrudolfoba) (the original repository is no longer available) — Game Mode cage launcher approach and `waydroid_base.prop` udev/uevent props
 - [Bazzite](https://github.com/ublue-os/bazzite) — uevent retrigger pattern for gamepad support
 - [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — libhoudini ARM translation installer
 - Linux kernel `drivers/android` — GPL-2.0 — in-tree binder; sources fetched at build time from kernel.org for the running kernel version

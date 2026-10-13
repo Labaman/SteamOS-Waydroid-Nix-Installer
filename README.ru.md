@@ -88,7 +88,7 @@ bash (оболочка входа SteamOS) включён в `home.nix` по у�
 
 ## Благодарности
 
-- [ryanrudolfoba/SteamOS-Waydroid-Installer](https://github.com/ryanrudolfoba/SteamOS-Waydroid-Installer) — подход с cage-лаунчером для Game Mode и udev/uevent пропсы из `waydroid_base.prop`
+- SteamOS-Waydroid-Installer от [ryanrudolfoba](https://github.com/ryanrudolfoba) (исходный репозиторий больше недоступен) — подход с cage-лаунчером для Game Mode и udev/uevent пропсы из `waydroid_base.prop`
 - [Bazzite](https://github.com/ublue-os/bazzite) — паттерн uevent-ретриггера для поддержки геймпада
 - [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) — установщик libhoudini (ARM-трансляция)
 - Linux kernel `drivers/android` — GPL-2.0 — штатный in-tree binder; исходники берутся при сборке с kernel.org под версию текущего ядра
