@@ -101,9 +101,11 @@ build_binder_module() {
   trap "rm -rf '$work'; trap - RETURN" RETURN
 
   # -Qoq/-Q print untranslated names; parsing the -Qo sentence breaks in other locales.
-  kpkg="$(pacman -Qoq "/usr/lib/modules/$KREL" 2>/dev/null)" || true
+  # Ask for pkgbase, not the directory: an installed -headers package owns the directory too.
+  kpkg="$(pacman -Qoq "/usr/lib/modules/$KREL/pkgbase" 2>/dev/null)" || true
   kver="$(pacman -Q "$kpkg" 2>/dev/null | awk '{print $2}')" || true
-  [[ -n "$kpkg" && -n "$kver" ]] || die "could not determine the kernel package for $KREL"
+  [[ -n "$kpkg" && -n "$kver" ]] \
+    || die "could not determine the kernel package for $KREL — check: pacman -Qo /usr/lib/modules/$KREL/pkgbase"
   hpkg="$kpkg-headers"
   mirror="$(grep -m1 '^Server' /etc/pacman.d/mirrorlist | sed 's/^Server *= *//')"
 
