@@ -20,6 +20,8 @@ BINDER_ETC_DIR="/etc/waydroid-binder"
 BINDER_KO="$BINDER_ETC_DIR/$KREL/binder_linux.ko"
 BINDER_STAMP="$BINDER_ETC_DIR/$KREL/source.stamp"
 BINDER_SHIM_DIR="$HOME/.local/share/waydroid-setup"  # shim.c + shim.h (from home.nix)
+BINDER_HEADERS_CACHE="$HOME/.cache/waydroid-setup"   # kernel headers packages, only needed for the build
+BINDER_KEYRING="/usr/share/pacman/keyrings/holo.gpg" # Valve's package signing keys (from the SteamOS image)
 
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
 skip() { printf '\033[33m→\033[0m %s (already done)\n' "$*"; }
@@ -88,10 +90,87 @@ binder_system_module() {
   modinfo -n binder_linux &>/dev/null
 }
 
-# Builds binder_linux.ko for the running kernel into $1: Valve headers (sha256 from the
-# repo db), drivers/android of the same version from kernel.org, gcc from nixpkgs.
+# Prints "<package> <version>" of the running kernel.
+# -Qoq/-Q print untranslated names; parsing the -Qo sentence breaks in other locales.
+# Ask for pkgbase, not the directory: an installed -headers package owns the directory too.
+kernel_package() {
+  local kpkg kver
+  kpkg="$(pacman -Qoq "/usr/lib/modules/$KREL/pkgbase" 2>/dev/null)" || return 1
+  kver="$(pacman -Q "$kpkg" 2>/dev/null | awk '{print $2}')" || return 1
+  [[ -n "$kpkg" && -n "$kver" ]] && printf '%s %s\n' "$kpkg" "$kver"
+}
+
+# Gets headers package $1 version $2 (from the cache or Valve's mirror), verifies it and sets
+# HEADERS_FILE. $3 is the caller's work directory.
+# After a SteamOS update the repo db only lists the new kernel, so for a system that hasn't been
+# updated yet the package is taken straight from the mirror and checked by Valve's signature.
+fetch_kernel_headers() {
+  local hpkg="$1" kver="$2" work="$3" mirror repos repo url="" desc="" file sum="" check
+  mirror="$(grep -m1 '^Server' /etc/pacman.d/mirrorlist | sed 's/^Server *= *//')"
+  repos="$(grep -oE '^\[[^]]+\]' /etc/pacman.conf | tr -d '[]' | grep -vx options)"
+
+  for repo in $repos; do
+    url="${mirror//\$repo/$repo}"; url="${url//\$arch/x86_64}"
+    curl -fsSL -o "$work/$repo.db" "$url/$repo.db" || continue
+    desc="$(bsdtar -xOf "$work/$repo.db" "$hpkg-$kver/desc" 2>/dev/null)" || true
+    [[ -n "$desc" ]] && break
+  done
+  if [[ -n "$desc" ]]; then
+    file="$(grep -A1 '^%FILENAME%$' <<<"$desc" | tail -1)"
+    sum="$(grep -A1 '^%SHA256SUM%$' <<<"$desc" | tail -1)"
+    check="sha256 from the $repo repo database"
+  else
+    file="$hpkg-$kver-x86_64.pkg.tar.zst"
+    for repo in $repos; do
+      url="${mirror//\$repo/$repo}"; url="${url//\$arch/x86_64}"
+      curl -fsSL -o "$work/$file.sig" "$url/$file.sig" 2>/dev/null && break
+      url=""
+    done
+    [[ -n "$url" ]] || die "headers $hpkg-$kver for kernel $KREL are not in Valve's repos or on the mirror. \
+A SteamOS update is probably available — update and run this script again."
+    gpg --batch --quiet --homedir "$work" --dearmor <"$BINDER_KEYRING" >"$work/holo.gpg" \
+      || die "could not read Valve's keys from $BINDER_KEYRING"
+    check="Valve's signature"
+    printf '\033[33m→\033[0m %s-%s is no longer in the repo database (SteamOS update available?) — using the file from the %s mirror, checked by signature\n' \
+      "$hpkg" "$kver" "$repo"
+  fi
+
+  headers_ok() {
+    if [[ -n "$sum" ]]; then
+      echo "$sum  $1" | sha256sum -c --quiet 2>/dev/null
+    else
+      gpgv --homedir "$work" --keyring "$work/holo.gpg" "$work/$file.sig" "$1" 2>/dev/null
+    fi
+  }
+
+  # Header cache; wget -c resumes interrupted downloads.
+  mkdir -p "$BINDER_HEADERS_CACHE"
+  if [[ -f "$BINDER_HEADERS_CACHE/$file" ]] && headers_ok "$BINDER_HEADERS_CACHE/$file"; then
+    ok "Headers from cache: $file"
+  else
+    ok "Downloading $file ($repo)"
+    wget -q -c --tries=50 --waitretry=3 --retry-connrefused --read-timeout=20 --timeout=30 \
+      -O "$BINDER_HEADERS_CACHE/$file" "$url/$file" || die "failed to download headers $file"
+    headers_ok "$BINDER_HEADERS_CACHE/$file" \
+      || { rm -f "$BINDER_HEADERS_CACHE/$file"; die "headers $file failed the check: $check"; }
+  fi
+  HEADERS_FILE="$BINDER_HEADERS_CACHE/$file"
+}
+
+# Removes cached headers of previous kernels (~40 MB per kernel update), keeps the current one.
+prune_headers_cache() {
+  local kpkg kver f
+  read -r kpkg kver < <(kernel_package) || return 0
+  for f in "$BINDER_HEADERS_CACHE"/*-headers-*.pkg.tar.zst; do
+    [[ -e "$f" && "${f##*/}" != "$kpkg-headers-$kver-"* ]] || continue
+    rm -f "$f" && ok "Removed headers of an old kernel from the cache: ${f##*/}"
+  done
+}
+
+# Builds binder_linux.ko for the running kernel into $1: Valve headers, drivers/android of the
+# same version from kernel.org, gcc from nixpkgs.
 build_binder_module() {
-  local out="$1" work kpkg kver hpkg mirror repo url desc file sum kdir gcc_major
+  local out="$1" work kpkg kver file kdir gcc_major
   command -v nix >/dev/null || die "nix not found in PATH — needed to build the binder module"
   [[ -r "$BINDER_SHIM_DIR/shim.c" && -r "$BINDER_SHIM_DIR/shim.h" ]] \
     || die "shim.c/shim.h missing in $BINDER_SHIM_DIR — run: home-manager switch"
@@ -100,38 +179,13 @@ build_binder_module() {
   # shellcheck disable=SC2064
   trap "rm -rf '$work'; trap - RETURN" RETURN
 
-  # -Qoq/-Q print untranslated names; parsing the -Qo sentence breaks in other locales.
-  # Ask for pkgbase, not the directory: an installed -headers package owns the directory too.
-  kpkg="$(pacman -Qoq "/usr/lib/modules/$KREL/pkgbase" 2>/dev/null)" || true
-  kver="$(pacman -Q "$kpkg" 2>/dev/null | awk '{print $2}')" || true
-  [[ -n "$kpkg" && -n "$kver" ]] \
+  read -r kpkg kver < <(kernel_package) || true
+  [[ -n "${kpkg:-}" && -n "${kver:-}" ]] \
     || die "could not determine the kernel package for $KREL — check: pacman -Qo /usr/lib/modules/$KREL/pkgbase"
-  hpkg="$kpkg-headers"
-  mirror="$(grep -m1 '^Server' /etc/pacman.d/mirrorlist | sed 's/^Server *= *//')"
-
-  for repo in $(grep -oE '^\[[^]]+\]' /etc/pacman.conf | tr -d '[]' | grep -vx options); do
-    url="${mirror//\$repo/$repo}"; url="${url//\$arch/x86_64}"
-    curl -fsSL -o "$work/$repo.db" "$url/$repo.db" || continue
-    desc="$(bsdtar -xOf "$work/$repo.db" "$hpkg-$kver/desc" 2>/dev/null)" || true
-    [[ -n "$desc" ]] && break
-  done
-  [[ -n "${desc:-}" ]] || die "package $hpkg-$kver not found in the repos from /etc/pacman.conf"
-  file="$(grep -A1 '^%FILENAME%$' <<<"$desc" | tail -1)"
-  sum="$(grep -A1 '^%SHA256SUM%$' <<<"$desc" | tail -1)"
-
-  # Header cache; wget -c resumes interrupted downloads.
-  local cache="$HOME/.cache/waydroid-setup"; mkdir -p "$cache"
-  if [[ -f "$cache/$file" ]] && echo "$sum  $cache/$file" | sha256sum -c --quiet 2>/dev/null; then
-    ok "Headers from cache: $file"
-  else
-    ok "Downloading $file ($repo)"
-    wget -q -c --tries=50 --waitretry=3 --retry-connrefused --read-timeout=20 --timeout=30 \
-      -O "$cache/$file" "$url/$file" || die "failed to download headers $file"
-    echo "$sum  $cache/$file" | sha256sum -c --quiet \
-      || { rm -f "$cache/$file"; die "headers sha256 does not match the $repo repo database"; }
-  fi
+  fetch_kernel_headers "$kpkg-headers" "$kver" "$work"
+  file="${HEADERS_FILE##*/}"
   mkdir "$work/hdr"
-  bsdtar -xf "$cache/$file" -C "$work/hdr"
+  bsdtar -xf "$HEADERS_FILE" -C "$work/hdr"
   kdir="$work/hdr/usr/lib/modules/$KREL/build"
   [[ -f "$kdir/.config" ]] || die "$file has no headers for $KREL"
 
@@ -226,6 +280,7 @@ else
   # Modules for previous kernels are no longer needed (one kernel per slot).
   sudo find "$BINDER_ETC_DIR" -mindepth 1 -maxdepth 1 -type d ! -name "$KREL" \
     -exec rm -rf {} + -exec printf '\033[32m✓\033[0m Removed module for old kernel: %s\n' {} \;
+  prune_headers_cache
 fi
 
 if grep -qw binder /proc/filesystems; then
