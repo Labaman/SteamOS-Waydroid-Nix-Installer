@@ -23,6 +23,7 @@ in
   # when enabling programs.bash), rename it to <file>.hm-backup instead of failing.
   home.backupFileExtension = "hm-backup";
 
+  # ── Nix on SteamOS ───────────────────────────────────────────────────────────
   # Required on non-NixOS.
   targets.genericLinux.enable = true;
   xdg.enable = true;
@@ -44,18 +45,7 @@ in
   nix.nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];
   nix.keepOldNixPath = false;
 
-  # Example: browser via the programs.chromium HM module.
-  # The module generates a proper .desktop entry and handles XDG mime types.
-  # Swap pkgs.google-chrome for pkgs.chromium / pkgs.ungoogled-chromium etc.
-  # programs.chromium = {
-  #   enable = true;
-  #   package = pkgs.google-chrome;
-  #   commandLineArgs = [
-  #     "--enable-features=VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,ParallelDownloading"
-  #     "--ignore-gpu-blocklist"
-  #   ];
-  # };
-
+  # ── KDE desktop ──────────────────────────────────────────────────────────────
   # XDG_DATA_DIRS order fix: keep Flatpak ahead of the SteamOS "Install Firefox"
   # stub in the KDE menu (HM #8076 / #9356). Overrides prepend -> append.
   home.sessionVariables.XDG_DATA_DIRS = lib.mkForce xdgDataDirsAppend;
@@ -94,6 +84,10 @@ in
       '';
     };
 
+  # genericLinux sets XCURSOR_PATH without the user theme dirs;
+  # KDE installs downloaded cursor themes to ~/.icons.
+  home.sessionSearchVariables.XCURSOR_PATH = lib.mkBefore [ "$HOME/.local/share/icons" "$HOME/.icons" ];
+
   # ── Shell ────────────────────────────────────────────────────────────────────
   # bash (the SteamOS login shell) is enabled by default: it loads the session
   # variables, ~/.local/bin and the prompt. To use zsh or fish instead, change the
@@ -113,10 +107,6 @@ in
   # ~/.local/bin in PATH: pip, cargo, and official installers put binaries there.
   # The scripts below (waydroid-setup, nix-gpu-setup, …) are installed there too.
   home.sessionPath = [ "$HOME/.local/bin" ];
-
-  # genericLinux sets XCURSOR_PATH without the user theme dirs;
-  # KDE installs downloaded cursor themes to ~/.icons.
-  home.sessionSearchVariables.XCURSOR_PATH = lib.mkBefore [ "$HOME/.local/share/icons" "$HOME/.icons" ];
 
   # Starship prompt — shell-independent (same toml renders in bash, zsh, and fish).
   # Matches the default SteamOS 3.9 bash style 1:1 (__holo_ps1/__holo_prompt_command
@@ -249,8 +239,18 @@ in
     };
   };
 
-  # Let Home Manager install and manage itself.
-  programs.home-manager.enable = true;
+  # ── Your programs ────────────────────────────────────────────────────────────
+  # Example: browser via the programs.chromium HM module.
+  # The module generates a proper .desktop entry and handles XDG mime types.
+  # Swap pkgs.google-chrome for pkgs.chromium / pkgs.ungoogled-chromium etc.
+  # programs.chromium = {
+  #   enable = true;
+  #   package = pkgs.google-chrome;
+  #   commandLineArgs = [
+  #     "--enable-features=VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,ParallelDownloading"
+  #     "--ignore-gpu-blocklist"
+  #   ];
+  # };
 
   # Uncomment to manage git. Activates ensureMutableGitconfig below automatically.
   # programs.git = {
@@ -273,4 +273,7 @@ in
         $DRY_RUN_CMD touch "$HOME/.gitconfig"
       fi
     '');
+
+  # Let Home Manager install and manage itself.
+  programs.home-manager.enable = true;
 }
