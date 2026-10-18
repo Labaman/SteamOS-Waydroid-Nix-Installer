@@ -240,8 +240,17 @@ in
   };
 
   # ── Your programs ────────────────────────────────────────────────────────────
-  # Example: browser via the programs.chromium HM module.
-  # The module generates a proper .desktop entry and handles XDG mime types.
+  # Some programs have their own Home Manager module (programs.<name>). Besides installing
+  # the program, a module can configure it from home.nix: settings, launch flags,
+  # extensions, etc. Files a module generates are read-only symlinks into the Nix store,
+  # so change those settings here, not in the app. Use a module only for what you want
+  # kept in home.nix; otherwise add the package to home.packages and set it up as usual.
+  # Find modules and their options:
+  # https://search.nixos.org/options?channel=unstable&source=home_manager
+  # (offline: `man home-configuration.nix`)
+  #
+  # Example: Chromium-based browser. commandLineArgs are built into the package, so the
+  # flags apply however the browser is started, including from the KDE menu.
   # Swap pkgs.google-chrome for pkgs.chromium / pkgs.ungoogled-chromium etc.
   # programs.chromium = {
   #   enable = true;
@@ -252,7 +261,7 @@ in
   #   ];
   # };
 
-  # Uncomment to manage git. Activates ensureMutableGitconfig below automatically.
+  # Example: git. Uncomment to manage it; this also enables ensureMutableGitconfig below.
   # programs.git = {
   #   enable = true;
   #   settings.user = {
