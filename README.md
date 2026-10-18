@@ -36,13 +36,13 @@ Packages and settings survive SteamOS updates.
 
 ## Usage
 
-Install Nix if not already installed ([NixOS/nix-installer](https://github.com/NixOS/nix-installer), auto-detects SteamOS):
+If Nix isn't installed yet, install it. The official installer [NixOS/nix-installer](https://github.com/NixOS/nix-installer) is recommended: it detects SteamOS automatically and handles the initial setup:
 
 ```bash
 curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --enable-flakes
 ```
 
-Clone and apply:
+Then:
 
 ```bash
 git clone https://github.com/Labaman/SteamOS-Waydroid-Nix-Installer ~/.config/home-manager

@@ -36,13 +36,13 @@
 
 ## Использование
 
-Установите Nix, если ещё не установлен ([NixOS/nix-installer](https://github.com/NixOS/nix-installer), автоматически определяет SteamOS):
+Установите Nix, если он ещё не установлен. Рекомендуется официальный установщик [NixOS/nix-installer](https://github.com/NixOS/nix-installer): он сам определяет SteamOS и выполняет начальную настройку:
 
 ```bash
 curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --enable-flakes
 ```
 
-Клонировать и применить:
+Затем:
 
 ```bash
 git clone https://github.com/Labaman/SteamOS-Waydroid-Nix-Installer ~/.config/home-manager
