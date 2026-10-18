@@ -102,8 +102,9 @@ kernel_package() {
 
 # Gets headers package $1 version $2 (from the cache or Valve's mirror), verifies it and sets
 # HEADERS_FILE. $3 is the caller's work directory.
-# After a SteamOS update the repo db only lists the new kernel, so for a system that hasn't been
-# updated yet the package is taken straight from the mirror and checked by Valve's signature.
+# The package is always checked by Valve's signature (keys from the SteamOS image); the repo db is
+# unsigned, so its sha256 is only an extra check. After a SteamOS update the repo db only lists the
+# new kernel, so for a system that hasn't been updated yet the package is taken from the mirror.
 fetch_kernel_headers() {
   local hpkg="$1" kver="$2" work="$3" mirror repos repo url="" desc="" file sum="" check
   mirror="$(grep -m1 '^Server' /etc/pacman.d/mirrorlist | sed 's/^Server *= *//')"
@@ -118,7 +119,9 @@ fetch_kernel_headers() {
   if [[ -n "$desc" ]]; then
     file="$(grep -A1 '^%FILENAME%$' <<<"$desc" | tail -1)"
     sum="$(grep -A1 '^%SHA256SUM%$' <<<"$desc" | tail -1)"
-    check="sha256 from the $repo repo database"
+    curl -fsSL -o "$work/$file.sig" "$url/$file.sig" 2>/dev/null \
+      || die "no signature $file.sig in the $repo repo — refusing to use unsigned headers"
+    check="Valve's signature and sha256 from the $repo repo database"
   else
     file="$hpkg-$kver-x86_64.pkg.tar.zst"
     for repo in $repos; do
@@ -128,19 +131,16 @@ fetch_kernel_headers() {
     done
     [[ -n "$url" ]] || die "headers $hpkg-$kver for kernel $KREL are not in Valve's repos or on the mirror. \
 A SteamOS update is probably available — update and run this script again."
-    gpg --batch --quiet --homedir "$work" --dearmor <"$BINDER_KEYRING" >"$work/holo.gpg" \
-      || die "could not read Valve's keys from $BINDER_KEYRING"
     check="Valve's signature"
     printf '\033[33m→\033[0m %s-%s is no longer in the repo database (SteamOS update available?) — using the file from the %s mirror, checked by signature\n' \
       "$hpkg" "$kver" "$repo"
   fi
+  gpg --batch --quiet --homedir "$work" --dearmor <"$BINDER_KEYRING" >"$work/holo.gpg" \
+    || die "could not read Valve's keys from $BINDER_KEYRING"
 
   headers_ok() {
-    if [[ -n "$sum" ]]; then
-      echo "$sum  $1" | sha256sum -c --quiet 2>/dev/null
-    else
-      gpgv --homedir "$work" --keyring "$work/holo.gpg" "$work/$file.sig" "$1" 2>/dev/null
-    fi
+    { [[ -z "$sum" ]] || echo "$sum  $1" | sha256sum -c --status; } \
+      && gpgv --homedir "$work" --keyring "$work/holo.gpg" "$work/$file.sig" "$1" 2>/dev/null
   }
 
   # Header cache; wget -c resumes interrupted downloads.
