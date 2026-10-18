@@ -83,8 +83,8 @@ waydroid-setup
 
 ## Оболочка
 
-bash (оболочка входа SteamOS) включён в `home.nix` по умолчанию. Он подключает переменные сессии и строку приглашения Starship, а также добавляет в `PATH` каталог `~/.local/bin`, куда устанавливаются `waydroid-setup` и другие скрипты. Существующие `~/.bashrc` и `~/.bash_profile` переименовываются в `*.hm-backup`.
-Чтобы использовать zsh или fish, нужно сменить логин-шелл — шаги и сравнение оболочек в [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
+Home Manager записывает переменные сессии (в том числе `~/.local/bin` в `PATH`, где лежит `waydroid-setup`) в `hm-session-vars.sh`, а подключает его только оболочка под управлением Home Manager. Оболочка входа в SteamOS — bash, поэтому `programs.bash` в `home.nix` включён по умолчанию. Существующие `~/.bashrc` и `~/.bash_profile` переименовываются в `*.hm-backup`.
+Чтобы использовать zsh или fish, см. [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
 
 ## Благодарности
 

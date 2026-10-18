@@ -83,8 +83,8 @@ Edit Layout → Action Sets → Default → Add Always-On command → System →
 
 ## Shell
 
-bash (the SteamOS login shell) is enabled in `home.nix` by default. It loads the session variables and the Starship prompt and adds `~/.local/bin` to `PATH`, where `waydroid-setup` and the other scripts are installed. Your existing `~/.bashrc` and `~/.bash_profile` are renamed to `*.hm-backup`.
-To use zsh or fish instead, changing the login shell is required — see [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) for the steps and a shell comparison.
+Home Manager writes session variables (including `~/.local/bin` in `PATH`, where `waydroid-setup` lives) to `hm-session-vars.sh`, which only a Home Manager-managed shell loads. The SteamOS login shell is bash, so `programs.bash` is enabled in `home.nix` by default. Your existing `~/.bashrc` and `~/.bash_profile` are renamed to `*.hm-backup`.
+To use zsh or fish instead, see [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
 
 ## Credits
 
