@@ -51,10 +51,8 @@ in
   home.sessionVariables.XDG_DATA_DIRS = lib.mkForce xdgDataDirsAppend;
   systemd.user.sessionVariables.XDG_DATA_DIRS = lib.mkForce xdgDataDirsAppend;
   # Dedup for all shells via hm-session-vars.sh (zsh, bash, fish via babelfish).
+  # bash needs one more pass in .bashrc — see programs.bash in the Shell section.
   home.sessionVariablesExtra = lib.mkAfter dedupXdgDataDirs;
-  # bash only (genericLinux re-sources nix.sh in .bashrc after the guard) — may be
-  # removed when using zsh or fish.
-  programs.bash.initExtra = lib.mkAfter dedupXdgDataDirs;
 
   # After switch, system apps (Konsole etc.) vanish from the KDE launcher and search.
   # Home Manager's activation script overrides PATH to a bare list of Nix store tools —
@@ -68,10 +66,31 @@ in
       fi
     '';
 
-  # Native Wayland for Electron/Chromium apps from nixpkgs.
+  # Native Wayland for Electron/Chromium apps from nixpkgs (for bash, see also
+  # nixos-ozone-wl.sh in the Shell section).
   # QT_QPA_PLATFORM is not set: Qt already picks wayland;xcb in a Wayland session.
   home.sessionVariables = {
     NIXOS_OZONE_WL = "1";
+  };
+
+  # genericLinux sets XCURSOR_PATH without the user theme dirs;
+  # KDE installs downloaded cursor themes to ~/.icons.
+  home.sessionSearchVariables.XCURSOR_PATH = lib.mkBefore [ "$HOME/.local/share/icons" "$HOME/.icons" ];
+
+  # ── Shell ────────────────────────────────────────────────────────────────────
+  # bash (the SteamOS login shell) is enabled by default: it loads the session
+  # variables, ~/.local/bin and the prompt. To use zsh or fish instead, change the
+  # login shell first (chsh, see README), then uncomment its block.
+  programs.bash = {
+    enable = true;
+    initExtra = lib.mkMerge [
+      # Your own lines for interactive bash (e.g. from the old ~/.bashrc):
+      ''
+      ''
+      # bash only: genericLinux re-sources nix.sh in .bashrc after the guard, which
+      # brings XDG_DATA_DIRS duplicates back — dedup again, last (mkAfter).
+      (lib.mkAfter dedupXdgDataDirs)
+    ];
   };
 
   # bash only: pushes NIXOS_OZONE_WL to KDE-launched apps via plasma-workspace/env,
@@ -84,16 +103,6 @@ in
       '';
     };
 
-  # genericLinux sets XCURSOR_PATH without the user theme dirs;
-  # KDE installs downloaded cursor themes to ~/.icons.
-  home.sessionSearchVariables.XCURSOR_PATH = lib.mkBefore [ "$HOME/.local/share/icons" "$HOME/.icons" ];
-
-  # ── Shell ────────────────────────────────────────────────────────────────────
-  # bash (the SteamOS login shell) is enabled by default: it loads the session
-  # variables, ~/.local/bin and the prompt. To use zsh or fish instead, change the
-  # login shell first (chsh, see README), then uncomment its block.
-  programs.bash.enable = true;
-  #
   # programs.zsh = {
   #   enable = true;
   #   enableCompletion = true;
