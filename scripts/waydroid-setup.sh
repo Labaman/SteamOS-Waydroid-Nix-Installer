@@ -243,6 +243,104 @@ KBUILD
   cp "$work/src/binder_linux.ko" "$out/binder_linux.ko"
 }
 
+# ── Uninstall: waydroid-setup --uninstall [--dry-run] ───────────────────────
+# Removes everything this script and Waydroid added to the system. Home Manager packages and
+# scripts are removed by Home Manager itself. --dry-run only prints what would be done.
+UNINSTALL_ETC=(
+  /etc/systemd/system/waydroid-container.service
+  /etc/dbus-1/system.d/id.waydro.Container.conf
+  /etc/waydroid-fix-controllers
+  /etc/sudoers.d/zz-waydroid-fix-controllers
+  /etc/sudoers.d/waydroid-fix-controllers        # old rule name
+  /etc/atomic-update.conf.d/waydroid.conf
+  "$BINDER_ETC_DIR"
+  "${OBSOLETE_ETC_FILES[@]}"
+)
+uninstall_waydroid() {
+  local dry=false f spec a size data_home title apps=()
+  [[ "${1:-}" == --dry-run ]] && dry=true
+  act()       { if $dry; then printf '  [dry-run] %s\n' "$*"; else "$@"; fi; }
+  act_quiet() { if $dry; then printf '  [dry-run] %s\n' "$*"; else "$@" &>/dev/null; fi; }
+  done_() { $dry || ok "$*"; }
+
+  data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  shopt -s nullglob
+  apps=("$data_home"/applications/waydroid.*.desktop "$data_home"/applications/Waydroid.desktop)
+  shopt -u nullglob
+  [[ "$WAYDROID_DATA" == "$HOME/.local/share/waydroid" ]] || die "unexpected WAYDROID_DATA: $WAYDROID_DATA"
+  size="$(sudo du -sh "$WAYDROID_DATA" 2>/dev/null | cut -f1)" || true
+
+  title="Uninstall Waydroid"; $dry && title+=" (dry run — nothing is changed)"
+  step "$title"
+  printf '%s\n' "This removes:" \
+    "  • the waydroid-container service and files in /etc (D-Bus, sudoers, keep-list, binder module)" \
+    "  • firewalld rules in the trusted zone: waydroid0, 53/udp, 67/udp, masquerade" \
+    "  • Android with all its data: $WAYDROID_DATA (${size:-?}) and /var/lib/waydroid" \
+    "  • Android app shortcuts: ${#apps[@]}" \
+    "  • $SCRIPT_DIR, ~/.cache/waydroid-script, $BINDER_HEADERS_CACHE"
+  if ! $dry; then
+    read -rp "Continue? [y/N] " a
+    [[ "$a" == [yY]* ]] || die "Cancelled"
+  fi
+
+  [[ -x "$WAYDROID_BIN" ]] && { act_quiet "$WAYDROID_BIN" session stop || true; }
+  if systemctl cat waydroid-container.service &>/dev/null; then
+    act sudo systemctl disable --now waydroid-container.service || true
+    done_ "waydroid-container.service stopped and disabled"
+  fi
+
+  for f in "${UNINSTALL_ETC[@]}"; do
+    if sudo test -e "$f"; then act sudo rm -rf "$f"; done_ "Removed $f"; fi
+  done
+  if [[ -d /etc/gbinder.d ]] && [[ -z "$(ls -A /etc/gbinder.d)" ]]; then act sudo rmdir /etc/gbinder.d; fi
+  act sudo systemctl daemon-reload
+  act sudo systemctl reload dbus.service
+
+  # Only our rules; firewalld itself stays enabled.
+  if command -v firewall-cmd >/dev/null && systemctl is-active --quiet firewalld; then
+    for spec in interface=waydroid0 port=53/udp port=67/udp masquerade; do
+      if sudo firewall-cmd --permanent --zone=trusted "--query-$spec" &>/dev/null; then
+        act_quiet sudo firewall-cmd --permanent --zone=trusted "--remove-$spec"
+        done_ "firewall: -$spec (zone trusted)"
+      fi
+    done
+    act_quiet sudo firewall-cmd --reload
+  fi
+
+  # Never rm -rf into active mounts of the container.
+  if findmnt -rn -o TARGET | grep -qE "^($WAYDROID_DATA|/var/lib/waydroid)(/|$)"; then
+    $dry && printf '  [dry-run] Waydroid data is mounted now — the container is stopped first on a real run\n' \
+      || die "something is mounted under $WAYDROID_DATA or /var/lib/waydroid — reboot and run this again"
+  fi
+  if [[ -L /var/lib/waydroid ]]; then act sudo rm -f /var/lib/waydroid; done_ "Removed the /var/lib/waydroid symlink"
+  elif [[ -e /var/lib/waydroid ]]; then act sudo rm -rf /var/lib/waydroid; done_ "Removed /var/lib/waydroid"; fi
+  if [[ -e "$WAYDROID_DATA" ]]; then act sudo rm -rf "$WAYDROID_DATA"; done_ "Removed $WAYDROID_DATA"; fi
+
+  if (( ${#apps[@]} )); then
+    act rm -f "${apps[@]}"; done_ "Removed Android app shortcuts: ${#apps[@]}"
+    if [[ -x /usr/bin/kbuildsycoca6 ]]; then
+      act_quiet env -u LD_LIBRARY_PATH PATH="/usr/bin:$PATH" /usr/bin/kbuildsycoca6 --noincremental || true
+    fi
+  fi
+
+  [[ -e "$SCRIPT_DIR" ]] && { act rm -rf "$SCRIPT_DIR"; done_ "Removed $SCRIPT_DIR"; }
+  [[ -e "$HOME/.cache/waydroid-script" ]] && { act sudo rm -rf "$HOME/.cache/waydroid-script"; done_ "Removed ~/.cache/waydroid-script"; }
+  [[ -e "$BINDER_HEADERS_CACHE" ]] && { act rm -rf "$BINDER_HEADERS_CACHE"; done_ "Removed $BINDER_HEADERS_CACHE"; }
+
+  $dry && { printf '\nDry run: nothing was changed.\n'; return 0; }
+  printf '\n\033[32m✓\033[0m Waydroid has been removed.\n'
+  printf '  • The binder module is unloaded on the next reboot.\n'
+  printf '  • Home Manager removes the Waydroid packages and scripts: delete the Waydroid section from\n'
+  printf '    home.nix and run home-manager switch (or remove Home Manager and Nix — see the nix-hm-conf-steamos README).\n'
+  printf '  • Remove the Waydroid shortcut in Steam yourself.\n'
+}
+
+case "${1:-}" in
+  "") ;;
+  --uninstall) uninstall_waydroid "${2:-}"; exit 0 ;;
+  *) die "unknown option: $1 (only --uninstall [--dry-run] is supported)" ;;
+esac
+
 # ── 1. Check dependencies ─────────────────────────────────────────────────
 step "1/8  Check dependencies"
 [[ -x "$WAYDROID_BIN" ]]       || die "waydroid not found — run: home-manager switch"

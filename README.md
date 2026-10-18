@@ -86,6 +86,16 @@ Edit Layout → Action Sets → Default → Add Always-On command → System →
 Home Manager writes session variables (including `~/.local/bin` in `PATH`, where `waydroid-setup` lives) to `hm-session-vars.sh`, which only a Home Manager-managed shell loads. The SteamOS login shell is bash, so `programs.bash` is enabled in `home.nix` by default. Your existing `~/.bashrc` and `~/.bash_profile` are renamed to `*.hm-backup`.
 To use zsh or fish instead, see [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
 
+## Updating & maintenance
+
+Updating packages, cleaning up old generations and uninstalling Home Manager and Nix work the same way as in [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos#updating--maintenance).
+
+To remove Waydroid itself — Android with all its data and everything `waydroid-setup` added to the system — run this before removing Home Manager and Nix (add `--dry-run` to see what would be removed):
+
+```bash
+waydroid-setup --uninstall
+```
+
 ## Credits
 
 - SteamOS-Waydroid-Installer by [ryanrudolfoba](https://github.com/ryanrudolfoba) (the original repository is no longer available) — Game Mode cage launcher approach and `waydroid_base.prop` udev/uevent props
