@@ -86,7 +86,7 @@ waydroid-setup
 Home Manager записывает переменные сессии (в том числе `~/.local/bin` в `PATH`, где лежит `waydroid-setup`) в `hm-session-vars.sh`, а подключает его только оболочка под управлением Home Manager. Оболочка входа в SteamOS — bash, поэтому `programs.bash` в `home.nix` включён по умолчанию. Существующие `~/.bashrc` и `~/.bash_profile` переименовываются в `*.hm-backup`.
 Чтобы использовать zsh или fish, см. [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos).
 
-## Обновление и обслуживание
+## Обновление и удаление
 
 Обновление пакетов, очистка старых поколений и удаление Home Manager и Nix — так же, как в [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos/blob/main/README.ru.md#обновление-и-обслуживание).
 
