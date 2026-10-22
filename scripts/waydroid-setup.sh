@@ -79,10 +79,11 @@ cleanup_obsolete() {
   fi
 }
 
-# Is binder built into the kernel itself? The option is bool (never an in-tree
-# module); BINDERFS depends on BINDER_IPC, so checking it is enough.
+# Is binder built into the kernel itself? Both drivers are bool (never in-tree modules):
+# the C one has binderfs only with BINDERFS, the Rust one (Arch's default since 6.18)
+# always includes its own binderfs.
 binder_builtin() {
-  zgrep -q '^CONFIG_ANDROID_BINDERFS=y' /proc/config.gz 2>/dev/null
+  zgrep -qE '^CONFIG_ANDROID_(BINDERFS|BINDER_IPC_RUST)=y' /proc/config.gz 2>/dev/null
 }
 
 # A binder_linux module installed on the system by something else (DKMS etc.).
