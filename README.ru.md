@@ -3,11 +3,11 @@
 [English](README.md) | **Русский**
 
 > [!WARNING]
-> Начиная с версии SteamOS 3.8.28 (ядро linux-neptune-618) поставляется без драйвера
-> Android binder (`CONFIG_ANDROID_BINDER_IPC` отключён), а Waydroid без него не
-> работает. Этот установщик собирает binder под текущее ядро из штатных исходников
-> ядра (mainline) как загружаемый модуль, чтобы Waydroid работал уже сейчас — но
-> правильное решение это если Valve вернут binder в ядро SteamOS.
+> Начиная с версии 3.8.28 (ядро linux-neptune-618) SteamOS поставляется без драйвера
+> Android binder, а Waydroid без него не работает. В SteamOS 3.9.5 Beta Valve вернули
+> binder (Rust-версию драйвера), но в стабильной ветке его пока нет. Если в ядре нет
+> binder, установщик собирает его под текущее ядро из штатных исходников ядра (mainline)
+> как загружаемый модуль, а если есть — использует встроенный.
 >
 > 👉 Поддержите / подпишитесь на issue:
 > [ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848).
@@ -26,7 +26,7 @@
 | Waydroid | Android 13 + GAPPS в LXC-контейнере |
 | Лаунчер для Game Mode | `waydroid-gamemode` — позволяет добавить Waydroid в Steam как стороннюю игру |
 | Поддержка геймпада | Правый стик корректно маппируется для Android-игр; геймпады, подключённые до запуска сессии, подхватываются автоматически (Game Mode и Desktop Mode) |
-| Модуль binder | Ядра SteamOS начиная с 6.18 собраны без binder — `waydroid-setup` собирает штатный in-tree binder под текущее ядро (исходники с kernel.org + небольшая прослойка через kallsyms, без патчей драйвера); пропускается, если binder встроен в ядро |
+| Модуль binder | Ядра стабильной SteamOS собраны без binder — `waydroid-setup` собирает штатный in-tree binder под текущее ядро (исходники с kernel.org + небольшая прослойка через kallsyms, без патчей драйвера). Если binder встроен в ядро (как в SteamOS 3.9.5 Beta), использует его и удаляет прежнюю сборку |
 | ARM-трансляция | libhoudini через [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 
 ## Требования

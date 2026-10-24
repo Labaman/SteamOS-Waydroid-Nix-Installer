@@ -4,10 +4,11 @@
 
 > [!WARNING]
 > Starting with SteamOS 3.8.28 (the linux-neptune-618 kernel), SteamOS ships without
-> the Android binder driver (`CONFIG_ANDROID_BINDER_IPC` is disabled), which Waydroid
-> needs. This installer builds binder for the running kernel from the kernel's own
-> upstream sources as a loadable module, so Waydroid works today — but the proper fix
-> is for Valve to re-enable binder in the SteamOS kernel.
+> the Android binder driver, which Waydroid needs. Valve has brought it back in
+> SteamOS 3.9.5 Beta (as the Rust binder driver), but the stable branch doesn't have it yet.
+> On a kernel without binder, this installer builds it for the running kernel from the
+> kernel's own upstream sources as a loadable module; on a kernel with binder, it uses
+> the built-in driver.
 >
 > 👉 Please upvote / subscribe to the issue:
 > [ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848).
@@ -26,7 +27,7 @@ Packages and settings survive SteamOS updates.
 | Waydroid | Android 13 + GAPPS in an LXC container |
 | Game Mode launcher | `waydroid-gamemode` lets you add Waydroid to Steam as a non-Steam game |
 | Gamepad support | Right stick mapped correctly for Android games; gamepads connected before the session starts are picked up automatically (Game Mode and Desktop Mode) |
-| Binder module | SteamOS kernels since 6.18 ship without binder — `waydroid-setup` builds the kernel's own in-tree binder for the running kernel (sources from kernel.org + a small kallsyms shim, no driver patches); skipped if the kernel has binder built in |
+| Binder module | Stable SteamOS kernels ship without binder — `waydroid-setup` builds the kernel's own in-tree binder for the running kernel (sources from kernel.org + a small kallsyms shim, no driver patches). If the kernel has binder built in (as in SteamOS 3.9.5 Beta), it uses that and removes the earlier build |
 | ARM translation | libhoudini via [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 
 ## Requirements
