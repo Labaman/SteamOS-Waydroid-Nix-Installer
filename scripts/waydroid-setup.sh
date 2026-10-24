@@ -91,6 +91,22 @@ binder_system_module() {
   modinfo -n binder_linux &>/dev/null
 }
 
+# Removes what our own module build left behind; called when the build isn't needed.
+cleanup_binder_build() {
+  local cleaned=false
+  if [[ -d "$BINDER_ETC_DIR" ]]; then
+    sudo rm -rf "$BINDER_ETC_DIR"
+    ok "Removed previously built binder modules: $BINDER_ETC_DIR"; cleaned=true
+  fi
+  if [[ -d "$BINDER_HEADERS_CACHE" ]]; then
+    rm -rf "$BINDER_HEADERS_CACHE"
+    ok "Removed kernel headers cache: $BINDER_HEADERS_CACHE"; cleaned=true
+  fi
+  if $cleaned; then
+    printf '\033[33m→\033[0m Build tools in /nix/store are freed by: nix-collect-garbage\n'
+  fi
+}
+
 # Prints "<package> <version>" of the running kernel.
 # -Qoq/-Q print untranslated names; parsing the -Qo sentence breaks in other locales.
 # Ask for pkgbase, not the directory: an installed -headers package owns the directory too.
@@ -355,9 +371,11 @@ step "2/8  Binder (kernel $KREL)"
 if binder_builtin; then
   BINDER_MODE=builtin
   skip "binder is built into the kernel — no module needed"
+  cleanup_binder_build
 elif binder_system_module; then
   BINDER_MODE=system
   skip "binder_linux module already on the system ($(modinfo -n binder_linux)) — no build needed"
+  cleanup_binder_build
 else
   BINDER_MODE=ours
   # Rebuild only if there is no module for this kernel from the same source.
@@ -403,15 +421,18 @@ esac
 step "3/8  /etc configs (systemd, D-Bus)"
 
 # RAUC wipes /etc outside its keep-list; list the Waydroid files so they survive updates.
-write_file /etc/atomic-update.conf.d/waydroid.conf <<'KEEPLIST' || true
+# The built modules are listed only while we build them.
+{
+  cat <<'KEEPLIST'
 # Waydroid files RAUC would otherwise wipe on a SteamOS atomic update.
 # The systemd unit + enable symlink aren't needed here — the base keep-list covers them.
 /etc/dbus-1/system.d/id.waydro.Container.conf
 /etc/waydroid-fix-controllers
 /etc/sudoers.d/zz-waydroid-fix-controllers
 /etc/firewalld/zones/trusted.xml
-/etc/waydroid-binder/**
 KEEPLIST
+  if [[ "$BINDER_MODE" == ours ]]; then printf '%s/**\n' "$BINDER_ETC_DIR"; fi
+} | write_file /etc/atomic-update.conf.d/waydroid.conf || true
 
 RELOAD_SYSTEMD=false
 RELOAD_DBUS=false
@@ -499,6 +520,39 @@ if [[ "$(stat -c %U "$WAYDROID_DATA")" != "$(whoami)" ]]; then
   ok "chown $(whoami) $WAYDROID_DATA"
 else
   skip "$WAYDROID_DATA owner already correct"
+fi
+
+# Binder device names in waydroid.cfg. `waydroid init` stores the devices it found; our
+# module also creates "binder" in binderfs, so an install set up with it has binder = binder.
+# A kernel with built-in binder (e.g. the Rust binder in SteamOS 3.9.5) doesn't create that
+# device, and Android's servicemanager aborts. Waydroid creates the anbox-* devices on every
+# session start, so use those; `waydroid upgrade --offline` regenerates the container config
+# from waydroid.cfg without touching the images.
+BINDER_NODES=(anbox-binder anbox-vndbinder anbox-hwbinder)
+LXC_NODES="/var/lib/waydroid/lxc/waydroid/config_nodes"
+binder_keys=(binder vndbinder hwbinder)
+binder_cfg_ok=true
+for i in 0 1 2; do
+  key="${binder_keys[i]}" want="${BINDER_NODES[i]}"
+  if ! grep -qxF "$key = $want" "$WAYDROID_CFG" 2>/dev/null \
+     || ! grep -qF "lxc.mount.entry = /dev/$want dev/$key " "$LXC_NODES" 2>/dev/null; then
+    binder_cfg_ok=false
+  fi
+done
+if $binder_cfg_ok; then
+  skip "binder devices in waydroid.cfg: ${BINDER_NODES[*]}"
+else
+  for i in 0 1 2; do
+    key="${binder_keys[i]}" want="${BINDER_NODES[i]}"
+    if grep -q "^$key = " "$WAYDROID_CFG"; then
+      sudo sed -i "s|^$key = .*|$key = $want|" "$WAYDROID_CFG"
+    else
+      sudo sed -i "/^\[waydroid\]/a $key = $want" "$WAYDROID_CFG"
+    fi
+  done
+  sudo PATH="$NIX_BIN:$PATH" "$WAYDROID_BIN" upgrade --offline \
+    || die "waydroid upgrade --offline failed — the container config was not regenerated"
+  ok "binder devices in waydroid.cfg: ${BINDER_NODES[*]}, container config regenerated"
 fi
 
 # Gamepad: props that forward udev/uevent to the container (source:
