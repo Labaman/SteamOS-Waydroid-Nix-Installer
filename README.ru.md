@@ -2,16 +2,6 @@
 
 [English](README.md) | **Русский**
 
-> [!WARNING]
-> Начиная с версии 3.8.28 (ядро linux-neptune-618) SteamOS поставляется без драйвера
-> Android binder, а Waydroid без него не работает. В SteamOS 3.9.5 Beta Valve вернули
-> binder (Rust-версию драйвера), но в стабильной ветке его пока нет. Если в ядре нет
-> binder, установщик собирает его под текущее ядро из штатных исходников ядра (mainline)
-> как загружаемый модуль, а если есть — использует встроенный.
->
-> 👉 Поддержите / подпишитесь на issue:
-> [ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848).
-
 Устанавливает [Waydroid](https://waydro.id) (Android 13 + GAPPS) на SteamOS через Nix + Home Manager.
 
 Делает всё то же, что [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) — базовые фиксы SteamOS, GPU-драйверы для Nix-GUI-приложений, строка приглашения оболочки, нативный Wayland для Nix-GUI-приложений (Electron/Chromium + Qt) — плюс устанавливает Android в LXC-контейнере с лаунчером для Game Mode и поддержкой геймпада.
@@ -26,7 +16,7 @@
 | Waydroid | Android 13 + GAPPS в LXC-контейнере |
 | Лаунчер для Game Mode | `waydroid-gamemode` — позволяет добавить Waydroid в Steam как стороннюю игру |
 | Поддержка геймпада | Правый стик корректно маппируется для Android-игр; геймпады, подключённые до запуска сессии, подхватываются автоматически (Game Mode и Desktop Mode) |
-| Модуль binder | Ядра стабильной SteamOS собраны без binder — `waydroid-setup` собирает штатный in-tree binder под текущее ядро (исходники с kernel.org + небольшая прослойка через kallsyms, без патчей драйвера). Если binder встроен в ядро (как в SteamOS 3.9.5 Beta), использует его и удаляет прежнюю сборку |
+| Модуль binder | В SteamOS 3.9.5 binder вернули в виде Rust-версии драйвера (в ядрах 6.15/6.16 был C-драйвер), `waydroid-setup` использует его. Если binder вновь исчезнет из ядра, как было в 3.8.28–3.9.4 ([ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848)), `waydroid-setup` соберёт его как внешний модуль |
 | ARM-трансляция | libhoudini через [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 
 ## Требования

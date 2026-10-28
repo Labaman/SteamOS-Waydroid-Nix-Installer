@@ -2,17 +2,6 @@
 
 **English** | [Русский](README.ru.md)
 
-> [!WARNING]
-> Starting with SteamOS 3.8.28 (the linux-neptune-618 kernel), SteamOS ships without
-> the Android binder driver, which Waydroid needs. Valve has brought it back in
-> SteamOS 3.9.5 Beta (as the Rust binder driver), but the stable branch doesn't have it yet.
-> On a kernel without binder, this installer builds it for the running kernel from the
-> kernel's own upstream sources as a loadable module; on a kernel with binder, it uses
-> the built-in driver.
->
-> 👉 Please upvote / subscribe to the issue:
-> [ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848).
-
 Installs [Waydroid](https://waydro.id) (Android 13 + GAPPS) on SteamOS via Nix + Home Manager.
 
 Does everything [nix-hm-conf-steamos](https://github.com/Labaman/nix-hm-conf-steamos) does — base SteamOS fixes, GPU drivers for Nix GUI apps, shell prompt, native Wayland for Nix GUI apps (Electron/Chromium + Qt) — plus installs Android in an LXC container with a Game Mode launcher and gamepad support.
@@ -27,7 +16,7 @@ Packages and settings survive SteamOS updates.
 | Waydroid | Android 13 + GAPPS in an LXC container |
 | Game Mode launcher | `waydroid-gamemode` lets you add Waydroid to Steam as a non-Steam game |
 | Gamepad support | Right stick mapped correctly for Android games; gamepads connected before the session starts are picked up automatically (Game Mode and Desktop Mode) |
-| Binder module | Stable SteamOS kernels ship without binder — `waydroid-setup` builds the kernel's own in-tree binder for the running kernel (sources from kernel.org + a small kallsyms shim, no driver patches). If the kernel has binder built in (as in SteamOS 3.9.5 Beta), it uses that and removes the earlier build |
+| Binder module | SteamOS 3.9.5 brought binder back as the Rust driver (the 6.15/6.16 kernels had the C one), and `waydroid-setup` uses it. If binder disappears from the kernel again, as it did in 3.8.28–3.9.4 ([ValveSoftware/SteamOS#2848](https://github.com/ValveSoftware/SteamOS/issues/2848)), `waydroid-setup` builds it as an external module |
 | ARM translation | libhoudini via [casualsnek/waydroid_script](https://github.com/casualsnek/waydroid_script) |
 
 ## Requirements
