@@ -29,15 +29,17 @@ step() { printf '\n\033[1;34m══ %s ══\033[0m\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 # Writes a file only if content or mode changed (mode is a parameter).
+# Returns 1 when unchanged; write failures stop setup.
 write_file() {
   local dest="$1" mode="${2:-644}"
-  local tmp; tmp=$(mktemp)
-  cat > "$tmp"
+  local tmp; tmp=$(mktemp) || die "Could not create a temporary file for $dest"
+  cat > "$tmp" || { rm -f "$tmp"; die "Could not read content for $dest"; }
   if sudo test -f "$dest" && sudo cmp -s "$tmp" "$dest" 2>/dev/null \
      && [[ "$(sudo stat -c %a "$dest" 2>/dev/null)" == "$mode" ]]; then
     skip "$dest"; rm -f "$tmp"; return 1
   fi
-  sudo install -D -m "$mode" "$tmp" "$dest"
+  sudo install -D -m "$mode" "$tmp" "$dest" \
+    || { rm -f "$tmp"; die "Could not write $dest"; }
   rm -f "$tmp"
   ok "Written $dest"
 }
@@ -386,7 +388,7 @@ else
     build_dir="$(mktemp -d "${TMPDIR:-/tmp}/waydroid-binder-out-XXXXXX")"
     build_binder_module "$build_dir"
     write_file "$BINDER_KO" 644 < "$build_dir/binder_linux.ko" || true
-    printf '%s\n' "$stamp" | write_file "$BINDER_STAMP" 644 || true
+    write_file "$BINDER_STAMP" 644 <<< "$stamp" || true
     rm -rf "$build_dir"
     # A loaded module can't be swapped live (no rmmod while the container has
     # binderfs mounted) — the new build is picked up on the next boot.
@@ -422,7 +424,7 @@ step "3/8  /etc configs (systemd, D-Bus)"
 
 # RAUC wipes /etc outside its keep-list; list the Waydroid files so they survive updates.
 # The built modules are listed only while we build them.
-{
+write_file /etc/atomic-update.conf.d/waydroid.conf < <(
   cat <<'KEEPLIST'
 # Waydroid files RAUC would otherwise wipe on a SteamOS atomic update.
 # The systemd unit + enable symlink aren't needed here — the base keep-list covers them.
@@ -432,7 +434,7 @@ step "3/8  /etc configs (systemd, D-Bus)"
 /etc/firewalld/zones/trusted.xml
 KEEPLIST
   if [[ "$BINDER_MODE" == ours ]]; then printf '%s/**\n' "$BINDER_ETC_DIR"; fi
-} | write_file /etc/atomic-update.conf.d/waydroid.conf || true
+) || true
 
 RELOAD_SYSTEMD=false
 RELOAD_DBUS=false
@@ -568,7 +570,7 @@ for prop in persist.waydroid.udev=true persist.waydroid.uevent=true; do
     ok "prop $prop → waydroid_base.prop"
   fi
 
-  if sudo grep -qxE "$key[[:space:]]*=[[:space:]]*true" "$WAYDROID_CFG" 2>/dev/null; then
+  if sudo grep -qxE "${key}[[:space:]]*=[[:space:]]*true" "$WAYDROID_CFG" 2>/dev/null; then
     skip "prop $key in waydroid.cfg [properties]"
   else
     sudo sed -i "/^\[properties\]/a $key = true" "$WAYDROID_CFG"
@@ -624,7 +626,7 @@ KLEOF
 if grep -q '^mount_overlays = True$' "$WAYDROID_CFG" 2>/dev/null; then
   # Overlay supported — Bazzite-style: plain file in overlay/ (extra lowerdir,
   # not upperdir) — no resize2fs/loop-mount/debugfs, survives `waydroid upgrade`.
-  printf '%s\n' "$KL_CONTENT" | write_file "$WAYDROID_DATA/overlay/$KL_PATH" 644
+  write_file "$WAYDROID_DATA/overlay/$KL_PATH" 644 <<< "$KL_CONTENT" || true
 else
   # Overlay is unsupported: write the kl into system.img. debugfs checks for it
   # (existence and size) without mounting.
@@ -637,7 +639,9 @@ else
     WAS_ACTIVE=false
     if systemctl is-active --quiet waydroid-container.service 2>/dev/null; then
       WAS_ACTIVE=true
-      sudo systemctl stop waydroid-container.service && sleep 2
+      sudo systemctl stop waydroid-container.service \
+        || die "Could not stop the container — image changes cancelled"
+      sleep 2
     fi
 
     # Grow system.img beforehand if it has no free blocks.
@@ -646,9 +650,9 @@ else
       /Block size/  { gsub(/ /,"",$2); bs=$2 }
       END { if (bs) print free * bs / 1024; else print 0 }')"
     if [[ "${FREE_KB:-0}" -lt 4096 ]]; then
-      # e2fsck exit code 1 = "errors corrected" — that's success, not a failure
-      # (see man e2fsck).
-      sudo e2fsck -fy "$IMG" >/dev/null || true
+      # Accept e2fsck 0/1 inside sudo; a sudo failure must stop setup.
+      sudo sh -c 'e2fsck -fy "$1" || [ "$?" -eq 1 ]' sh "$IMG" >/dev/null \
+        || die "Filesystem check failed — refusing to resize system.img"
       sudo truncate -s +32M "$IMG"
       sudo resize2fs "$IMG" >/dev/null
       ok "system.img grown by 32M (had ${FREE_KB:-0}KB free)"
@@ -770,11 +774,13 @@ else
 
   if [[ ! -d "$SCRIPT_DIR/venv" ]]; then
     python3 -m venv "$SCRIPT_DIR/venv"
-    "$SCRIPT_DIR/venv/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt"
     ok "Python venv created"
   else
     skip "Python venv already created"
   fi
+  # Retry dependencies after an interrupted installation.
+  "$SCRIPT_DIR/venv/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt"
+  ok "Python dependencies installed"
 
   CONTAINER_PY="$SCRIPT_DIR/tools/container.py"
   # Check the exact patched line (upstream upgrade() has a similar ignore=r"...");
